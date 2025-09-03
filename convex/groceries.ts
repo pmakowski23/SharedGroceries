@@ -1,6 +1,8 @@
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation, action, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
+import { groceryItemPrompt } from "./prompts";
+import { Id } from "./_generated/dataModel";
 
 // Query to get current user's store and grocery list
 export const getGroceryList = query({
@@ -263,16 +265,14 @@ export const recategorizeAllItems = action({
     });
 
     // Get categories for current store
-    const categories = groceryData.categories.map((cat: any) => cat.name);
+    const categories = groceryData.categories.map((cat) => cat.name);
 
     for (const item of items) {
-      const prompt = `Categorize this grocery item for "${currentStore.name}" into one of these categories:
-
-${categories.join("\n")}
-
-Item: "${item.name}"
-
-Respond with just the category name, nothing else.`;
+      const prompt = groceryItemPrompt(
+        currentStore.name,
+        categories,
+        item.name
+      );
 
       try {
         const response = await client.chat.completions.create({
@@ -437,15 +437,13 @@ export const categorizeItem = action({
         apiKey: process.env.CONVEX_OPEN_ROUTER_API_KEY,
       });
 
-      const prompt: string = `Categorize this grocery item for "${currentStore.name}" into one of these categories:
+      const prompt = groceryItemPrompt(
+        currentStore.name,
+        categories,
+        args.itemName
+      );
 
-${categories.join("\n")}
-
-Item: "${args.itemName}"
-
-Respond with just the category name, nothing else.`;
-
-      const response: any = await client.chat.completions.create({
+      const response = await client.chat.completions.create({
         model: "deepseek/deepseek-chat-v3.1:free",
         messages: [{ role: "user", content: prompt }],
         max_tokens: 50,
@@ -480,7 +478,10 @@ Respond with just the category name, nothing else.`;
 });
 
 // Helper function to create default categories
-async function createDefaultCategories(ctx: any, storeId: any) {
+async function createDefaultCategories(
+  ctx: MutationCtx,
+  storeId: Id<"stores">
+) {
   const defaultCategories = [
     { name: "Fruits & Vegetables", color: "#22C55E" },
     { name: "Meat & Fish", color: "#EF4444" },
