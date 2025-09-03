@@ -1,23 +1,17 @@
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "./ui/select";
 import { Doc, Id } from "../../convex/_generated/dataModel";
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
 
 export function CategoryManager({
-  storeId: _storeId,
+  storeId,
   categories,
   onClose,
-  onUpdateCategory,
-  onDeleteCategory,
 }: {
   storeId: Id<"stores">;
   categories: Array<Doc<"categories">>;
   onClose: () => void;
-  onUpdateCategory: (
-    categoryId: Id<"categories"> | undefined,
-    name: string,
-    color: string
-  ) => Promise<void>;
-  onDeleteCategory: (categoryId: Id<"categories">) => Promise<void>;
 }) {
   const [editingCategory, setEditingCategory] =
     useState<Doc<"categories"> | null>(null);
@@ -45,13 +39,29 @@ export function CategoryManager({
   );
   const getColorName = (value: string) => colorNameByValue[value] ?? value;
 
+  const updateCategory = useMutation(api.groceries.updateCategory);
+  const deleteCategory = useMutation(api.groceries.deleteCategory);
+
+  const handleUpdateCategory = async (
+    categoryId: Id<"categories"> | undefined,
+    name: string,
+    color: string
+  ) => {
+    await updateCategory({
+      storeId,
+      categoryId,
+      name,
+      color,
+    });
+  };
+
   const handleSave = (categoryId?: Id<"categories">) => {
     const name = categoryId ? (editingCategory?.name ?? "") : newCategoryName;
     const color = categoryId
       ? (editingCategory?.color ?? "")
       : newCategoryColor;
     if (!name.trim()) return;
-    void onUpdateCategory(categoryId, name.trim(), color);
+    void handleUpdateCategory(categoryId, name.trim(), color);
     if (categoryId) {
       setEditingCategory(null);
     } else {
@@ -59,6 +69,10 @@ export function CategoryManager({
       setNewCategoryColor("#3B82F6");
       setShowAddForm(false);
     }
+  };
+
+  const handleDeleteCategory = async (categoryId: Id<"categories">) => {
+    await deleteCategory({ categoryId });
   };
 
   return (
@@ -175,7 +189,7 @@ export function CategoryManager({
                     </button>
                     <button
                       onClick={() => {
-                        void onDeleteCategory(category._id);
+                        void handleDeleteCategory(category._id);
                       }}
                       className="text-red-600 hover:text-red-700 text-sm"
                     >

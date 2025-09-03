@@ -17,7 +17,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Id, Doc } from "../convex/_generated/dataModel";
+import { Doc } from "../convex/_generated/dataModel";
 import { SignInForm } from "./SignInForm";
 import { SignOutButton } from "./SignOutButton";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -46,19 +46,11 @@ export default function App() {
     api.groceries.getGroceryList,
     isAuthenticated ? {} : undefined
   );
-  const stores: Array<Doc<"stores">> | undefined = useQuery(
-    api.groceries.getStores,
-    isAuthenticated ? {} : undefined
-  );
+
   const categorizeItem = useAction(api.groceries.categorizeItem);
   const toggleCompletion = useMutation(api.groceries.toggleItemCompletion);
   const deleteItem = useMutation(api.groceries.deleteItem);
   const reorderCategories = useMutation(api.groceries.reorderCategories);
-  const switchStore = useMutation(api.groceries.switchStore);
-  const createStore = useMutation(api.groceries.createStore);
-  const updateCategory = useMutation(api.groceries.updateCategory);
-  const deleteCategory = useMutation(api.groceries.deleteCategory);
-  const recategorizeAllItems = useAction(api.groceries.recategorizeAllItems);
   const initializeUser = useMutation(api.groceries.initializeUser);
 
   // Ensure user initialization after auth
@@ -115,36 +107,6 @@ export default function App() {
         categoryIds: newOrder.map((cat) => cat._id),
       });
     }
-  };
-
-  const handleSwitchStore = async (storeId: Id<"stores">) => {
-    await switchStore({ storeId });
-  };
-
-  const handleCreateStore = async (name: string) => {
-    await createStore({ name });
-  };
-
-  const handleUpdateCategory = async (
-    categoryId: Id<"categories"> | undefined,
-    name: string,
-    color: string
-  ) => {
-    if (!groceryData?.currentStore) return;
-    await updateCategory({
-      storeId: groceryData.currentStore._id,
-      categoryId,
-      name,
-      color,
-    });
-  };
-
-  const handleDeleteCategory = async (categoryId: Id<"categories">) => {
-    await deleteCategory({ categoryId });
-  };
-
-  const handleRecategorizeItems = async () => {
-    await recategorizeAllItems();
   };
 
   // Loading/auth screens
@@ -228,17 +190,10 @@ export default function App() {
       </header>
 
       <div className="max-w-md mx-auto px-4 py-6">
-        {/* Store Manager */}
-        {showStoreManager && stores && (
+        {showStoreManager && (
           <StoreManager
             currentStore={groceryData.currentStore}
-            stores={stores}
-            onSwitchStore={handleSwitchStore}
-            onCreateStore={handleCreateStore}
-            onManageCategories={() => {
-              setShowCategoryManager(true);
-            }}
-            onRecategorizeItems={handleRecategorizeItems}
+            onManageCategories={() => setShowCategoryManager(true)}
           />
         )}
 
@@ -333,8 +288,6 @@ export default function App() {
           onClose={() => {
             setShowCategoryManager(false);
           }}
-          onUpdateCategory={handleUpdateCategory}
-          onDeleteCategory={handleDeleteCategory}
         />
       )}
     </div>

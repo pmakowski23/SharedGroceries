@@ -1,28 +1,31 @@
 import { useState } from "react";
 import { Id, Doc } from "../../convex/_generated/dataModel";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 
 export function StoreManager({
   currentStore,
-  stores,
-  onSwitchStore,
-  onCreateStore,
   onManageCategories,
-  onRecategorizeItems,
 }: {
   currentStore: Doc<"stores"> | null;
-  stores: Array<Doc<"stores">>;
-  onSwitchStore: (storeId: Id<"stores">) => Promise<void>;
-  onCreateStore: (name: string) => Promise<void>;
   onManageCategories: () => void;
-  onRecategorizeItems: () => Promise<void>;
 }) {
+  const { isAuthenticated } = useConvexAuth();
+  const stores: Array<Doc<"stores">> | undefined = useQuery(
+    api.groceries.getStores,
+    isAuthenticated ? {} : undefined
+  );
+  const createStore = useMutation(api.groceries.createStore);
+  const switchStore = useMutation(api.groceries.switchStore);
+  const recategorizeAllItems = useAction(api.groceries.recategorizeAllItems);
+
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newStoreName, setNewStoreName] = useState("");
   const [isRecategorizing, setIsRecategorizing] = useState(false);
 
   const handleCreateStore = async () => {
     if (!newStoreName.trim()) return;
-    await onCreateStore(newStoreName.trim());
+    await createStore({ name: newStoreName.trim() });
     setNewStoreName("");
     setShowCreateForm(false);
   };
@@ -30,7 +33,7 @@ export function StoreManager({
   const handleRecategorize = async () => {
     setIsRecategorizing(true);
     try {
-      await onRecategorizeItems();
+      await recategorizeAllItems();
     } finally {
       setIsRecategorizing(false);
     }
@@ -55,11 +58,11 @@ export function StoreManager({
         <select
           value={currentStore?._id || ""}
           onChange={(e) => {
-            void onSwitchStore(e.target.value as Id<"stores">);
+            void switchStore({ storeId: e.target.value as Id<"stores"> });
           }}
           className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
         >
-          {stores.map((store) => (
+          {stores?.map((store) => (
             <option key={store._id} value={store._id}>
               {store.name}
             </option>
