@@ -35,10 +35,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Convex deploy (also builds frontend with production URL)
-        run: npx convex deploy --yes --cmd 'pnpm run build'
+      - name: Build frontend
+        run: pnpm run build
         env:
-          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          VITE_CONVEX_URL: ${{ secrets.VITE_CONVEX_URL }}
 
       - name: Include CNAME in artifact if present
         if: hashFiles('CNAME') != ''
