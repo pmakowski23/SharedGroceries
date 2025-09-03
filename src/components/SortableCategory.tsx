@@ -75,7 +75,7 @@ export function SortableCategory({
   } = useSortable({ id: category._id });
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: CSS.Translate.toString(transform),
     transition,
   };
 
