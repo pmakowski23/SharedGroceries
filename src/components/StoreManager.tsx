@@ -2,13 +2,14 @@ import { useState } from "react";
 import { Id, Doc } from "../../convex/_generated/dataModel";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { CategoryManager } from "./CategoryManager";
 
 export function StoreManager({
   currentStore,
-  onManageCategories,
+  categories,
 }: {
   currentStore: Doc<"stores"> | null;
-  onManageCategories: () => void;
+  categories: Array<Doc<"categories">>;
 }) {
   const stores: Array<Doc<"stores">> | undefined = useQuery(
     api.groceries.getStores,
@@ -68,6 +69,7 @@ export function StoreManager({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newStoreName, setNewStoreName] = useState("");
   const [isRecategorizing, setIsRecategorizing] = useState(false);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
 
   const handleCreateStore = async () => {
     if (!newStoreName.trim()) return;
@@ -146,7 +148,7 @@ export function StoreManager({
 
       <div className="flex gap-2">
         <button
-          onClick={() => onManageCategories()}
+          onClick={() => setShowCategoryManager(true)}
           className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
         >
           Manage Categories
@@ -166,6 +168,15 @@ export function StoreManager({
           )}
         </button>
       </div>
+      {showCategoryManager && currentStore && (
+        <CategoryManager
+          storeId={currentStore._id}
+          categories={categories}
+          onClose={() => {
+            setShowCategoryManager(false);
+          }}
+        />
+      )}
     </div>
   );
 }
