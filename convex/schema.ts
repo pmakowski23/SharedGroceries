@@ -1,6 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { authTables } from "@convex-dev/auth/server";
 
 const applicationTables = {
   groceryItems: defineTable({
@@ -13,7 +12,7 @@ const applicationTables = {
     .index("by_category", ["category"])
     .index("by_store", ["storeId"])
     .index("by_store_and_category", ["storeId", "category"]),
-  
+
   categories: defineTable({
     name: v.string(),
     storeId: v.optional(v.id("stores")),
@@ -28,15 +27,14 @@ const applicationTables = {
     name: v.string(),
     isDefault: v.boolean(),
     createdAt: v.number(),
-  }),
+  }).index("by_isDefault", ["isDefault"]),
 
-  userSettings: defineTable({
-    userId: v.string(),
-    currentStoreId: v.id("stores"),
-  }).index("by_user", ["userId"]),
+  appSettings: defineTable({
+    password: v.optional(v.string()),
+    currentStoreId: v.optional(v.id("stores")),
+  }),
 };
 
 export default defineSchema({
-  ...authTables,
   ...applicationTables,
 });

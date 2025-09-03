@@ -1,33 +1,23 @@
 import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
-import { getAuthUserId } from "@convex-dev/auth/server";
 
 // Query to get current user's store and grocery list
 export const getGroceryList = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
+    // Load global app settings
+    const settings = await ctx.db.query("appSettings").first();
 
-    // Get user's current store
-    const userSettings = await ctx.db
-      .query("userSettings")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .first();
-
-    let currentStore;
-    if (userSettings) {
-      currentStore = await ctx.db.get(userSettings.currentStoreId);
-    }
+    let currentStore = settings?.currentStoreId
+      ? await ctx.db.get(settings.currentStoreId)
+      : null;
 
     // If no current store, get default store
     if (!currentStore) {
       currentStore = await ctx.db
         .query("stores")
-        .filter((q) => q.eq(q.field("isDefault"), true))
+        .withIndex("by_isDefault", (q) => q.eq("isDefault", true))
         .first();
 
       // If still no store, return empty state - store will be created by mutation
@@ -49,15 +39,17 @@ export const getGroceryList = query({
       .query("categories")
       .withIndex("by_store_and_order", (q) => q.eq("storeId", currentStore._id))
       .collect();
-    
-    // Group items by category
-    const itemsByCategory = items.reduce((acc, item) => {
-      if (!acc[item.category]) {
-        acc[item.category] = [];
-      }
-      acc[item.category].push(item);
-      return acc;
-    }, {} as Record<string, typeof items>);
+
+    const itemsByCategory = items.reduce(
+      (acc, item) => {
+        if (!acc[item.category]) {
+          acc[item.category] = [];
+        }
+        acc[item.category].push(item);
+        return acc;
+      },
+      {} as Record<string, typeof items>
+    );
 
     return {
       currentStore,
@@ -68,48 +60,41 @@ export const getGroceryList = query({
 });
 
 // Mutation to initialize user with default store
-export const initializeUser = mutation({
+export const initializeApp = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
-    // Check if user already has settings
-    const userSettings = await ctx.db
-      .query("userSettings")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .first();
-
-    if (userSettings) {
-      return; // User already initialized
-    }
-
-    // Get or create default store
+    // Ensure default store exists
     let defaultStore = await ctx.db
       .query("stores")
-      .filter((q) => q.eq(q.field("isDefault"), true))
+      .withIndex("by_isDefault", (q) => q.eq("isDefault", true))
       .first();
 
     if (!defaultStore) {
-      // Create default store
       const storeId = await ctx.db.insert("stores", {
         name: "Default Store",
         isDefault: true,
         createdAt: Date.now(),
       });
       defaultStore = await ctx.db.get(storeId);
-
-      // Create default categories for the store
       await createDefaultCategories(ctx, storeId);
     }
 
-    // Set as user's current store
-    await ctx.db.insert("userSettings", {
-      userId,
-      currentStoreId: defaultStore!._id,
-    });
+    // Ensure app settings doc exists
+    const settings = await ctx.db.query("appSettings").first();
+    if (!settings) {
+      await ctx.db.insert("appSettings", {
+        password: undefined,
+        currentStoreId: defaultStore!._id,
+      });
+      return;
+    }
+
+    // Ensure currentStoreId set
+    if (!settings.currentStoreId) {
+      await ctx.db.patch(settings._id, {
+        currentStoreId: defaultStore!._id,
+      });
+    }
   },
 });
 
@@ -117,11 +102,6 @@ export const initializeUser = mutation({
 export const getStores = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     return await ctx.db.query("stores").collect();
   },
 });
@@ -132,11 +112,6 @@ export const getCategoriesForStore = query({
     storeId: v.id("stores"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     return await ctx.db
       .query("categories")
       .withIndex("by_store_and_order", (q) => q.eq("storeId", args.storeId))
@@ -150,11 +125,6 @@ export const createStore = mutation({
     name: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     const storeId = await ctx.db.insert("stores", {
       name: args.name,
       isDefault: false,
@@ -174,24 +144,13 @@ export const switchStore = mutation({
     storeId: v.id("stores"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
-    const userSettings = await ctx.db
-      .query("userSettings")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .first();
-
-    if (userSettings) {
-      await ctx.db.patch(userSettings._id, {
-        currentStoreId: args.storeId,
-      });
+    const settings = await ctx.db.query("appSettings").first();
+    if (settings) {
+      await ctx.db.patch(settings._id, { currentStoreId: args.storeId });
     } else {
-      await ctx.db.insert("userSettings", {
-        userId,
+      await ctx.db.insert("appSettings", {
         currentStoreId: args.storeId,
+        password: undefined,
       });
     }
   },
@@ -206,11 +165,6 @@ export const updateCategory = mutation({
     color: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     if (args.categoryId) {
       // Update existing category
       await ctx.db.patch(args.categoryId, {
@@ -241,11 +195,6 @@ export const deleteCategory = mutation({
     categoryId: v.id("categories"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     const category = await ctx.db.get(args.categoryId);
     if (!category) {
       throw new Error("Category not found");
@@ -254,7 +203,7 @@ export const deleteCategory = mutation({
     // Move items to "Uncategorized" category
     const items = await ctx.db
       .query("groceryItems")
-      .withIndex("by_store_and_category", (q) => 
+      .withIndex("by_store_and_category", (q) =>
         q.eq("storeId", category.storeId).eq("category", category.name)
       )
       .collect();
@@ -294,13 +243,8 @@ export const deleteCategory = mutation({
 export const recategorizeAllItems = action({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     // Get current store
-    const groceryData = await ctx.runQuery(api.groceries.getGroceryList);
+    const groceryData = await ctx.runQuery(api.groceries.getGroceryList, {});
     if (!groceryData.currentStore) {
       throw new Error("No current store found");
     }
@@ -324,7 +268,7 @@ export const recategorizeAllItems = action({
     for (const item of items) {
       const prompt = `Categorize this grocery item for "${currentStore.name}" into one of these categories:
 
-${categories.join('\n')}
+${categories.join("\n")}
 
 Item: "${item.name}"
 
@@ -339,7 +283,7 @@ Respond with just the category name, nothing else.`;
         });
 
         const category = response.choices[0]?.message?.content?.trim();
-        
+
         if (category && categories.includes(category)) {
           await ctx.runMutation(api.groceries.updateItemCategory, {
             itemId: item._id,
@@ -387,11 +331,6 @@ export const addGroceryItem = mutation({
     storeId: v.id("stores"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     // Check if category exists, if not create it
     const existingCategory = await ctx.db
       .query("categories")
@@ -404,12 +343,18 @@ export const addGroceryItem = mutation({
         .query("categories")
         .withIndex("by_store", (q) => q.eq("storeId", args.storeId))
         .collect();
-      
+
       const colors = [
-        "#EF4444", "#F97316", "#EAB308", "#22C55E", 
-        "#06B6D4", "#3B82F6", "#8B5CF6", "#EC4899"
+        "#EF4444",
+        "#F97316",
+        "#EAB308",
+        "#22C55E",
+        "#06B6D4",
+        "#3B82F6",
+        "#8B5CF6",
+        "#EC4899",
       ];
-      
+
       await ctx.db.insert("categories", {
         name: args.category,
         storeId: args.storeId,
@@ -434,11 +379,6 @@ export const toggleItemCompletion = mutation({
     itemId: v.id("groceryItems"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Item not found");
 
@@ -454,11 +394,6 @@ export const deleteItem = mutation({
     itemId: v.id("groceryItems"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     return await ctx.db.delete(args.itemId);
   },
 });
@@ -469,11 +404,6 @@ export const reorderCategories = mutation({
     categoryIds: v.array(v.id("categories")),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
     for (let i = 0; i < args.categoryIds.length; i++) {
       await ctx.db.patch(args.categoryIds[i], {
         order: i,
@@ -488,22 +418,17 @@ export const categorizeItem = action({
     itemName: v.string(),
   },
   handler: async (ctx, args): Promise<string> => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) {
-      throw new Error("Not authenticated");
-    }
-
-    // Initialize user if needed
-    await ctx.runMutation(api.groceries.initializeUser);
+    // Initialize app if needed
+    await ctx.runMutation(api.groceries.initializeApp, {});
 
     // Get current store and its categories
-    const groceryData: any = await ctx.runQuery(api.groceries.getGroceryList);
+    const groceryData = await ctx.runQuery(api.groceries.getGroceryList, {});
     if (!groceryData.currentStore) {
       throw new Error("No current store found");
     }
 
-    const currentStore: any = groceryData.currentStore;
-    const categories: string[] = groceryData.categories.map((cat: any) => cat.name);
+    const currentStore = groceryData.currentStore;
+    const categories = groceryData.categories.map((cat) => cat.name);
 
     try {
       const openai = await import("openai");
@@ -514,7 +439,7 @@ export const categorizeItem = action({
 
       const prompt: string = `Categorize this grocery item for "${currentStore.name}" into one of these categories:
 
-${categories.join('\n')}
+${categories.join("\n")}
 
 Item: "${args.itemName}"
 
@@ -527,8 +452,11 @@ Respond with just the category name, nothing else.`;
         temperature: 0.1,
       });
 
-      const category: string = response.choices[0]?.message?.content?.trim() || categories[0] || "Uncategorized";
-      
+      const category: string =
+        response.choices[0]?.message?.content?.trim() ||
+        categories[0] ||
+        "Uncategorized";
+
       // Add the item with the AI-determined category
       await ctx.runMutation(api.groceries.addGroceryItem, {
         name: args.itemName,
@@ -575,3 +503,43 @@ async function createDefaultCategories(ctx: any, storeId: any) {
     });
   }
 }
+
+// Password management
+export const isPasswordSet = query({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx) => {
+    const settings = await ctx.db.query("appSettings").first();
+    return !!(settings && settings.password && settings.password.length > 0);
+  },
+});
+
+export const setAppPassword = mutation({
+  args: { password: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const settings = await ctx.db.query("appSettings").first();
+    if (settings && settings.password) {
+      throw new Error("Password already set");
+    }
+    if (settings) {
+      await ctx.db.patch(settings._id, { password: args.password });
+    } else {
+      await ctx.db.insert("appSettings", {
+        password: args.password,
+        currentStoreId: undefined,
+      });
+    }
+    return null;
+  },
+});
+
+export const verifyPassword = mutation({
+  args: { password: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const settings = await ctx.db.query("appSettings").first();
+    const expected = settings?.password ?? "";
+    return expected.length > 0 && args.password === expected;
+  },
+});

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Id, Doc } from "../../convex/_generated/dataModel";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
 export function StoreManager({
@@ -10,10 +10,9 @@ export function StoreManager({
   currentStore: Doc<"stores"> | null;
   onManageCategories: () => void;
 }) {
-  const { isAuthenticated } = useConvexAuth();
   const stores: Array<Doc<"stores">> | undefined = useQuery(
     api.groceries.getStores,
-    isAuthenticated ? {} : undefined
+    {}
   );
   const createStore = useMutation(api.groceries.createStore);
   const switchStore = useMutation(api.groceries.switchStore);
