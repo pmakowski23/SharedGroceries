@@ -32,14 +32,14 @@ export function SortableCategory({
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white rounded-xl shadow-sm border transition-shadow ${
+      className={`bg-white select-none rounded-xl shadow-sm border transition-shadow ${
         isDragging ? "shadow-lg opacity-50" : ""
       }`}
     >
       <div
         {...attributes}
         {...listeners}
-        className="flex items-center gap-3 p-4 border-b border-gray-100 cursor-grab active:cursor-grabbing"
+        className="flex items-center gap-3 p-4 border-b border-gray-100 cursor-grab active:cursor-grabbing touch-none"
         style={{ backgroundColor: category.color + "10" }}
       >
         <div
