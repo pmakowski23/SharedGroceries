@@ -23,6 +23,10 @@ concurrency:
 jobs:
   # Single deploy job since we're just deploying
   deploy:
+    env:
+      VITE_CONVEX_URL: ${{ secrets.VITE_CONVEX_URL }}
+      CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
