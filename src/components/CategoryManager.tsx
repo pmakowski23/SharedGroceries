@@ -39,8 +39,89 @@ export function CategoryManager({
   );
   const getColorName = (value: string) => colorNameByValue[value] ?? value;
 
-  const updateCategory = useMutation(api.groceries.updateCategory);
-  const deleteCategory = useMutation(api.groceries.deleteCategory);
+  const updateCategory = useMutation(
+    api.groceries.updateCategory
+  ).withOptimisticUpdate((store, args) => {
+    const data = store.getQuery(api.groceries.getGroceryList, {});
+    if (!data) return;
+    if (!data.currentStore) return;
+
+    // Update existing or append new category
+    const isUpdate = !!args.categoryId;
+    const categories = [...data.categories];
+    if (isUpdate) {
+      const idx = categories.findIndex((c) => c._id === args.categoryId);
+      if (idx !== -1) {
+        categories[idx] = {
+          ...categories[idx],
+          name: args.name,
+          color: args.color,
+        };
+      }
+    } else {
+      // Create a temporary client-only id to avoid key collisions
+      const tempId = ("temp_" +
+        Math.random().toString(36).slice(2)) as Id<"categories">;
+      categories.push({
+        _id: tempId,
+        name: args.name,
+        color: args.color,
+        order: categories.length,
+        storeId,
+        _creationTime: Date.now(),
+      });
+    }
+
+    const next = { ...data, categories };
+    store.setQuery(api.groceries.getGroceryList, {}, next);
+  });
+
+  const deleteCategory = useMutation(
+    api.groceries.deleteCategory
+  ).withOptimisticUpdate((store, args) => {
+    const data = store.getQuery(api.groceries.getGroceryList, {});
+    if (!data) return;
+    if (!data.currentStore) return;
+
+    const categories = data.categories.filter((c) => c._id !== args.categoryId);
+    const itemsByCategory: Record<string, Array<Doc<"groceryItems">>> = {};
+    const toDelete = data.categories.find((c) => c._id === args.categoryId);
+    const deletedName = toDelete?.name;
+    for (const [cat, items] of Object.entries(data.itemsByCategory)) {
+      if (cat === deletedName) {
+        // move items to Uncategorized
+        const moved = items.map((it) => ({ ...it, category: "Uncategorized" }));
+        const existing = data.itemsByCategory["Uncategorized"] || [];
+        itemsByCategory["Uncategorized"] = [...existing, ...moved];
+      } else {
+        itemsByCategory[cat] = items;
+      }
+    }
+
+    // Ensure Uncategorized category exists
+    const hasUncategorized = categories.some((c) => c.name === "Uncategorized");
+    const nextCategories = hasUncategorized
+      ? categories
+      : [
+          ...categories,
+          {
+            _id: ("temp_uncat_" +
+              Math.random().toString(36).slice(2)) as Id<"categories">,
+            name: "Uncategorized",
+            color: "#6B7280",
+            order: categories.length,
+            storeId,
+            _creationTime: Date.now(),
+          },
+        ];
+
+    const next = {
+      ...data,
+      categories: nextCategories,
+      itemsByCategory,
+    };
+    store.setQuery(api.groceries.getGroceryList, {}, next);
+  });
 
   const handleUpdateCategory = async (
     categoryId: Id<"categories"> | undefined,

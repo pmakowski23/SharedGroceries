@@ -14,8 +14,55 @@ export function StoreManager({
     api.groceries.getStores,
     {}
   );
-  const createStore = useMutation(api.groceries.createStore);
-  const switchStore = useMutation(api.groceries.switchStore);
+  const createStore = useMutation(
+    api.groceries.createStore
+  ).withOptimisticUpdate((store, args) => {
+    const data = store.getQuery(api.groceries.getGroceryList, {});
+    const stores = store.getQuery(api.groceries.getStores, {});
+    if (!stores) return;
+
+    const tempId = ("temp_store_" +
+      Math.random().toString(36).slice(2)) as Id<"stores">;
+    const nextStores = [
+      ...stores,
+      {
+        _id: tempId,
+        _creationTime: Date.now(),
+        name: args.name,
+        isDefault: false,
+        createdAt: Date.now(),
+      },
+    ];
+    store.setQuery(api.groceries.getStores, {}, nextStores);
+
+    if (data && !data.currentStore) {
+      // If we were uninitialized, set current store optimistically
+      const next = {
+        ...data,
+        currentStore: nextStores[nextStores.length - 1],
+      };
+      store.setQuery(api.groceries.getGroceryList, {}, next);
+    }
+  });
+  const switchStore = useMutation(
+    api.groceries.switchStore
+  ).withOptimisticUpdate((store, args) => {
+    const data = store.getQuery(api.groceries.getGroceryList, {});
+    const stores = store.getQuery(api.groceries.getStores, {});
+    if (!data || !stores) return;
+
+    const nextCurrent = stores.find((s) => s._id === args.storeId) || null;
+    if (!nextCurrent) return;
+
+    const next = {
+      ...data,
+      currentStore: nextCurrent,
+      // On switch, clear items/categories until server refills to avoid flicker
+      categories: [],
+      itemsByCategory: {},
+    };
+    store.setQuery(api.groceries.getGroceryList, {}, next);
+  });
   const recategorizeAllItems = useAction(api.groceries.recategorizeAllItems);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -41,18 +88,18 @@ export function StoreManager({
   return (
     <div className="bg-white rounded-xl shadow-sm border p-4 mb-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">Store Settings</h2>
+        <h2 className="text-lg font-semibold text-gray-900">List Settings</h2>
         <button
           onClick={() => setShowCreateForm(!showCreateForm)}
           className="text-blue-500 hover:text-blue-600 text-sm font-medium"
         >
-          + New Store
+          + New List
         </button>
       </div>
 
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          Current Store
+          Current List
         </label>
         <select
           value={currentStore?._id || ""}
@@ -74,7 +121,7 @@ export function StoreManager({
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder="Store name (e.g., Lidl, Biedronka)"
+              placeholder="List name (e.g., Lidl, Biedronka)"
               value={newStoreName}
               onChange={(e) => setNewStoreName(e.target.value)}
               className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"

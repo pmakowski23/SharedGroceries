@@ -11,8 +11,59 @@ export function SortableCategory({
   category: Doc<"categories">;
   items: Array<Doc<"groceryItems">>;
 }) {
-  const toggleCompletion = useMutation(api.groceries.toggleItemCompletion);
-  const deleteItem = useMutation(api.groceries.deleteItem);
+  const toggleCompletion = useMutation(
+    api.groceries.toggleItemCompletion
+  ).withOptimisticUpdate((store, args) => {
+    const data = store.getQuery(api.groceries.getGroceryList, {});
+    if (!data) return;
+
+    const next = {
+      ...data,
+      itemsByCategory: { ...data.itemsByCategory },
+    };
+
+    for (const key of Object.keys(next.itemsByCategory)) {
+      const arr = next.itemsByCategory[key];
+      const idx = arr.findIndex((it) => it._id === args.itemId);
+      if (idx !== -1) {
+        const item = arr[idx];
+        next.itemsByCategory[key] = [
+          ...arr.slice(0, idx),
+          { ...item, isCompleted: !item.isCompleted },
+          ...arr.slice(idx + 1),
+        ];
+        break;
+      }
+    }
+
+    store.setQuery(api.groceries.getGroceryList, {}, next);
+  });
+
+  const deleteItem = useMutation(api.groceries.deleteItem).withOptimisticUpdate(
+    (store, args) => {
+      const data = store.getQuery(api.groceries.getGroceryList, {});
+      if (!data) return;
+
+      const next = {
+        ...data,
+        itemsByCategory: { ...data.itemsByCategory },
+      };
+
+      for (const key of Object.keys(next.itemsByCategory)) {
+        const arr = next.itemsByCategory[key];
+        const idx = arr.findIndex((it) => it._id === args.itemId);
+        if (idx !== -1) {
+          next.itemsByCategory[key] = [
+            ...arr.slice(0, idx),
+            ...arr.slice(idx + 1),
+          ];
+          break;
+        }
+      }
+
+      store.setQuery(api.groceries.getGroceryList, {}, next);
+    }
+  );
 
   const {
     attributes,
@@ -32,14 +83,14 @@ export function SortableCategory({
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white select-none rounded-xl shadow-sm border transition-shadow ${
+      className={`bg-white overflow-hidden select-none rounded-xl shadow-sm border transition-shadow ${
         isDragging ? "shadow-lg opacity-50" : ""
       }`}
     >
       <div
         {...attributes}
         {...listeners}
-        className="flex items-center gap-3 p-4 border-b border-gray-100 cursor-grab active:cursor-grabbing touch-none"
+        className="flex items-center gap-3 p-4 border-b border-gray-100 cursor-grab active:cursor-grabbing"
         style={{ backgroundColor: category.color + "10" }}
       >
         <div

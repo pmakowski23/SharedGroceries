@@ -18,7 +18,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Doc } from "../convex/_generated/dataModel";
+import { Doc, Id } from "../convex/_generated/dataModel";
 import { SortableCategory } from "./components/SortableCategory";
 import { StoreManager } from "./components/StoreManager";
 import { CategoryManager } from "./components/CategoryManager";
@@ -37,7 +37,25 @@ export default function App() {
   );
 
   const categorizeItem = useAction(api.groceries.categorizeItem);
-  const reorderCategories = useMutation(api.groceries.reorderCategories);
+  const reorderCategories = useMutation(
+    api.groceries.reorderCategories
+  ).withOptimisticUpdate((store, args) => {
+    const data = store.getQuery(api.groceries.getGroceryList, {});
+    if (!data) return;
+
+    const idOrder = args.categoryIds as Array<Id<"categories">>;
+    const idToCategory = new Map(data.categories.map((c) => [c._id, c]));
+    const newCategories = idOrder
+      .map((id, idx) => ({ ...idToCategory.get(id)!, order: idx }))
+      .filter(Boolean);
+
+    const next = {
+      ...data,
+      categories: newCategories,
+    } as typeof data;
+
+    store.setQuery(api.groceries.getGroceryList, {}, next);
+  });
 
   const [isAdding, setIsAdding] = useState(false);
   const [showStoreManager, setShowStoreManager] = useState(false);
@@ -114,7 +132,7 @@ export default function App() {
           <div className="max-w-md mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <h1 className="text-2xl font-bold text-gray-900">
-                🛒 Grocery List
+                🛒 Grocery Lists
               </h1>
               <div className="flex items-center gap-2">
                 <button
@@ -122,7 +140,7 @@ export default function App() {
                     setShowStoreManager(!showStoreManager);
                   }}
                   className="text-gray-600 hover:text-gray-800 p-2"
-                  title="Store Settings"
+                  title="List Settings"
                 >
                   <svg
                     className="w-5 h-5"
@@ -140,7 +158,7 @@ export default function App() {
             </div>
             {groceryData.currentStore && (
               <div className="text-sm text-gray-600 mt-1">
-                Shopping at:{" "}
+                Active list:{" "}
                 <span className="font-medium">
                   {groceryData.currentStore.name}
                 </span>
