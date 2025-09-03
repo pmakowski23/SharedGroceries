@@ -36,8 +36,6 @@ export default function App() {
   );
 
   const categorizeItem = useAction(api.groceries.categorizeItem);
-  const toggleCompletion = useMutation(api.groceries.toggleItemCompletion);
-  const deleteItem = useMutation(api.groceries.deleteItem);
   const reorderCategories = useMutation(api.groceries.reorderCategories);
 
   const [isAdding, setIsAdding] = useState(false);
@@ -214,8 +212,6 @@ export default function App() {
                       key={category._id}
                       category={category}
                       items={items}
-                      toggleCompletion={toggleCompletion}
-                      deleteItem={deleteItem}
                     />
                   );
                 })}

@@ -1,20 +1,19 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Doc, Id } from "../../convex/_generated/dataModel";
-
-type ToggleArgs = { itemId: Id<"groceryItems"> };
+import { Doc } from "../../convex/_generated/dataModel";
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
 
 export function SortableCategory({
   category,
   items,
-  toggleCompletion,
-  deleteItem,
 }: {
   category: Doc<"categories">;
   items: Array<Doc<"groceryItems">>;
-  toggleCompletion: (args: ToggleArgs) => Promise<null> | void;
-  deleteItem: (args: ToggleArgs) => Promise<null> | void;
 }) {
+  const toggleCompletion = useMutation(api.groceries.toggleItemCompletion);
+  const deleteItem = useMutation(api.groceries.deleteItem);
+
   const {
     attributes,
     listeners,
