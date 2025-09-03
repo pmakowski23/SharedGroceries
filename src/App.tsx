@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { useQuery, useAction, useMutation } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
-import { useForm } from "@tanstack/react-form";
 import {
   DndContext,
   closestCenter,
@@ -18,25 +17,17 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Doc, Id } from "../convex/_generated/dataModel";
+import { Id } from "../convex/_generated/dataModel";
 import { SortableCategory } from "./components/SortableCategory";
 import { StoreManager } from "./components/StoreManager";
 import { CategoryManager } from "./components/CategoryManager";
 import { InitializationGate } from "./components/InitializationGate";
-
-type GroceryData = {
-  currentStore: Doc<"stores"> | null;
-  categories: Array<Doc<"categories">>;
-  itemsByCategory: Record<string, Array<Doc<"groceryItems">>>;
-};
+import { Header } from "./components/Header";
+import { AddItemForm } from "./components/AddItemForm";
 
 export default function App() {
-  const groceryData: GroceryData | undefined = useQuery(
-    api.groceries.getGroceryList,
-    {}
-  );
+  const groceryData = useQuery(api.groceries.getGroceryList, {});
 
-  const categorizeItem = useAction(api.groceries.categorizeItem);
   const reorderCategories = useMutation(
     api.groceries.reorderCategories
   ).withOptimisticUpdate((store, args) => {
@@ -57,7 +48,6 @@ export default function App() {
     store.setQuery(api.groceries.getGroceryList, {}, next);
   });
 
-  const [isAdding, setIsAdding] = useState(false);
   const [showStoreManager, setShowStoreManager] = useState(false);
   const [showCategoryManager, setShowCategoryManager] = useState(false);
 
@@ -73,23 +63,6 @@ export default function App() {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
-
-  const form = useForm({
-    defaultValues: {
-      itemName: "",
-    },
-    onSubmit: async ({ value }) => {
-      if (!value.itemName.trim()) return;
-
-      setIsAdding(true);
-      try {
-        await categorizeItem({ itemName: value.itemName.trim() });
-        form.reset();
-      } finally {
-        setIsAdding(false);
-      }
-    },
-  });
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -127,45 +100,10 @@ export default function App() {
   return (
     <InitializationGate>
       <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b sticky top-0 z-40">
-          <div className="max-w-md mx-auto px-4 py-4">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-gray-900">
-                🛒 Grocery Lists
-              </h1>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    setShowStoreManager(!showStoreManager);
-                  }}
-                  className="text-gray-600 hover:text-gray-800 p-2"
-                  title="List Settings"
-                >
-                  <svg
-                    className="w-5 h-5"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z"
-                      clipRule="evenodd"
-                    ></path>
-                  </svg>
-                </button>
-              </div>
-            </div>
-            {groceryData.currentStore && (
-              <div className="text-sm text-gray-600 mt-1">
-                Active list:{" "}
-                <span className="font-medium">
-                  {groceryData.currentStore.name}
-                </span>
-              </div>
-            )}
-          </div>
-        </header>
+        <Header
+          currentStore={groceryData.currentStore}
+          onToggleStoreManager={() => setShowStoreManager(!showStoreManager)}
+        />
 
         <div className="max-w-md mx-auto px-4 py-6">
           {showStoreManager && (
@@ -175,47 +113,7 @@ export default function App() {
             />
           )}
 
-          {/* Add Item Form */}
-          <div className="bg-white rounded-xl shadow-sm border p-4 mb-6">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                void form.handleSubmit();
-              }}
-              className="space-y-3"
-            >
-              <form.Field
-                name="itemName"
-                children={(field) => (
-                  <div>
-                    <input
-                      type="text"
-                      placeholder="Add grocery item..."
-                      value={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all text-base"
-                      disabled={isAdding}
-                    />
-                  </div>
-                )}
-              />
-              <button
-                type="submit"
-                disabled={isAdding}
-                className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-base"
-              >
-                {isAdding ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Adding...
-                  </span>
-                ) : (
-                  "Add Item"
-                )}
-              </button>
-            </form>
-          </div>
+          <AddItemForm />
 
           {/* Categories and Items */}
           <DndContext
