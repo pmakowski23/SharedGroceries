@@ -11,10 +11,10 @@ export function StoreManager({
   currentStore: Doc<"stores"> | null;
   categories: Array<Doc<"categories">>;
 }) {
-  const stores: Array<Doc<"stores">> | undefined = useQuery(
-    api.groceries.getStores,
-    {}
-  );
+  const stores = useQuery(api.groceries.getStores, {});
+
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newStoreName, setNewStoreName] = useState("");
   const createStore = useMutation(
     api.groceries.createStore
   ).withOptimisticUpdate((store, args) => {
@@ -64,13 +64,6 @@ export function StoreManager({
     };
     store.setQuery(api.groceries.getGroceryList, {}, next);
   });
-  const recategorizeAllItems = useAction(api.groceries.recategorizeAllItems);
-
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newStoreName, setNewStoreName] = useState("");
-  const [isRecategorizing, setIsRecategorizing] = useState(false);
-  const [showCategoryManager, setShowCategoryManager] = useState(false);
-
   const handleCreateStore = async () => {
     if (!newStoreName.trim()) return;
     await createStore({ name: newStoreName.trim() });
@@ -78,6 +71,10 @@ export function StoreManager({
     setShowCreateForm(false);
   };
 
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
+
+  const [isRecategorizing, setIsRecategorizing] = useState(false);
+  const recategorizeAllItems = useAction(api.groceries.recategorizeAllItems);
   const handleRecategorize = async () => {
     setIsRecategorizing(true);
     try {
