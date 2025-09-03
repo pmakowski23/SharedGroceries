@@ -258,8 +258,8 @@ export const recategorizeAllItems = action({
 
     const openai = await import("openai");
     const client = new openai.default({
-      baseURL: process.env.CONVEX_OPENAI_BASE_URL,
-      apiKey: process.env.CONVEX_OPENAI_API_KEY,
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: process.env.CONVEX_OPEN_ROUTER_API_KEY,
     });
 
     // Get categories for current store
@@ -276,7 +276,7 @@ Respond with just the category name, nothing else.`;
 
       try {
         const response = await client.chat.completions.create({
-          model: "gpt-4.1-nano",
+          model: "deepseek/deepseek-chat-v3.1:free",
           messages: [{ role: "user", content: prompt }],
           max_tokens: 50,
           temperature: 0.1,
@@ -433,8 +433,8 @@ export const categorizeItem = action({
     try {
       const openai = await import("openai");
       const client = new openai.default({
-        baseURL: process.env.CONVEX_OPENAI_BASE_URL,
-        apiKey: process.env.CONVEX_OPENAI_API_KEY,
+        baseURL: "https://openrouter.ai/api/v1",
+        apiKey: process.env.CONVEX_OPEN_ROUTER_API_KEY,
       });
 
       const prompt: string = `Categorize this grocery item for "${currentStore.name}" into one of these categories:
@@ -446,7 +446,7 @@ Item: "${args.itemName}"
 Respond with just the category name, nothing else.`;
 
       const response: any = await client.chat.completions.create({
-        model: "gpt-4.1-nano",
+        model: "deepseek/deepseek-chat-v3.1:free",
         messages: [{ role: "user", content: prompt }],
         max_tokens: 50,
         temperature: 0.1,
