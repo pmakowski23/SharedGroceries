@@ -44,6 +44,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm run build
+      - name: Include CNAME in artifact
+        run: |
+          if [ -f CNAME ]; then
+            cp CNAME dist/CNAME
+          fi
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
