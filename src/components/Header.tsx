@@ -1,16 +1,78 @@
+import { useMutation } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import { useQuery } from "convex/react";
+import { Id } from "../../convex/_generated/dataModel";
+
 export function Header({
   currentStore,
   onToggleStoreManager,
 }: {
-  currentStore?: { name: string } | null;
+  currentStore?: { _id?: string; name: string } | null;
   onToggleStoreManager: () => void;
 }) {
+  const groceryData = useQuery(api.groceries.getGroceryList, {});
+  const clearCompleted = useMutation(
+    api.groceries.clearCompletedForStore
+  ).withOptimisticUpdate((store) => {
+    const data = store.getQuery(api.groceries.getGroceryList, {});
+    if (!data) return;
+    const next = {
+      ...data,
+      itemsByCategory: Object.fromEntries(
+        Object.entries(data.itemsByCategory).map(([key, arr]) => [
+          key,
+          arr.filter((it) => !it.isCompleted),
+        ])
+      ),
+    };
+    store.setQuery(api.groceries.getGroceryList, {}, next);
+  });
+
+  const hasCompleted =
+    !!groceryData &&
+    Object.values(groceryData.itemsByCategory).some((arr) =>
+      arr.some((it) => it.isCompleted)
+    );
+
   return (
     <header className="bg-white shadow-sm border-b sticky top-0 z-40">
       <div className="max-w-md mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">🛒 Grocery Lists</h1>
           <div className="flex items-center gap-2">
+            {currentStore && hasCompleted && (
+              <button
+                aria-label="Clear completed"
+                onClick={() =>
+                  currentStore?._id &&
+                  void clearCompleted({
+                    storeId: currentStore._id as Id<"stores">,
+                  })
+                }
+                className="text-red-600 hover:text-red-700 p-2"
+                title="Clear completed"
+              >
+                <svg
+                  className="w-5 h-5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.8}
+                >
+                  <path d="M3 6h18" strokeLinecap="round" />
+                  <path
+                    d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M6 6l1 14a2 2 0 002 2h6a2 2 0 002-2l1-14"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path d="M10 10v8M14 10v8" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
             <button
               onClick={onToggleStoreManager}
               className="text-gray-600 hover:text-gray-800 p-2"

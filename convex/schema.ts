@@ -11,7 +11,8 @@ const applicationTables = {
   })
     .index("by_category", ["category"])
     .index("by_store", ["storeId"])
-    .index("by_store_and_category", ["storeId", "category"]),
+    .index("by_store_and_category", ["storeId", "category"])
+    .index("by_store_and_isCompleted", ["storeId", "isCompleted"]),
 
   categories: defineTable({
     name: v.string(),

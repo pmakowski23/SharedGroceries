@@ -398,6 +398,28 @@ export const deleteItem = mutation({
   },
 });
 
+// Mutation to clear all completed items for a given store
+export const clearCompletedForStore = mutation({
+  args: {
+    storeId: v.id("stores"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const completedItems = await ctx.db
+      .query("groceryItems")
+      .withIndex("by_store_and_isCompleted", (q) =>
+        q.eq("storeId", args.storeId).eq("isCompleted", true)
+      )
+      .collect();
+
+    for (const item of completedItems) {
+      await ctx.db.delete(item._id);
+    }
+
+    return null;
+  },
+});
+
 // Mutation to reorder categories
 export const reorderCategories = mutation({
   args: {
