@@ -4,6 +4,8 @@ import { api } from "./_generated/api";
 import { groceryItemPrompt } from "./prompts";
 import { Id } from "./_generated/dataModel";
 
+const model = "xiaomi/mimo-v2-flash:free";
+
 // Query to get current user's store and grocery list
 export const getGroceryList = query({
   args: {},
@@ -50,7 +52,7 @@ export const getGroceryList = query({
         acc[item.category].push(item);
         return acc;
       },
-      {} as Record<string, typeof items>
+      {} as Record<string, typeof items>,
     );
 
     return {
@@ -206,7 +208,7 @@ export const deleteCategory = mutation({
     const items = await ctx.db
       .query("groceryItems")
       .withIndex("by_store_and_category", (q) =>
-        q.eq("storeId", category.storeId).eq("category", category.name)
+        q.eq("storeId", category.storeId).eq("category", category.name),
       )
       .collect();
 
@@ -271,12 +273,12 @@ export const recategorizeAllItems = action({
       const prompt = groceryItemPrompt(
         currentStore.name,
         categories,
-        item.name
+        item.name,
       );
 
       try {
         const response = await client.chat.completions.create({
-          model: "deepseek/deepseek-chat-v3.1:free",
+          model,
           messages: [{ role: "user", content: prompt }],
           max_tokens: 50,
           temperature: 0.1,
@@ -408,7 +410,7 @@ export const clearCompletedForStore = mutation({
     const completedItems = await ctx.db
       .query("groceryItems")
       .withIndex("by_store_and_isCompleted", (q) =>
-        q.eq("storeId", args.storeId).eq("isCompleted", true)
+        q.eq("storeId", args.storeId).eq("isCompleted", true),
       )
       .collect();
 
@@ -462,11 +464,11 @@ export const categorizeItem = action({
       const prompt = groceryItemPrompt(
         currentStore.name,
         categories,
-        args.itemName
+        args.itemName,
       );
 
       const response = await client.chat.completions.create({
-        model: "deepseek/deepseek-chat-v3.1:free",
+        model,
         messages: [{ role: "user", content: prompt }],
         max_tokens: 50,
         temperature: 0.1,
@@ -502,7 +504,7 @@ export const categorizeItem = action({
 // Helper function to create default categories
 async function createDefaultCategories(
   ctx: MutationCtx,
-  storeId: Id<"stores">
+  storeId: Id<"stores">,
 ) {
   const defaultCategories = [
     { name: "Fruits & Vegetables", color: "#22C55E" },
