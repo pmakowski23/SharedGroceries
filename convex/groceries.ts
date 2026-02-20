@@ -3,8 +3,87 @@ import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { groceryItemPrompt } from "./prompts";
 import { Id } from "./_generated/dataModel";
+import { Mistral } from "@mistralai/mistralai";
 
-const model = "xiaomi/mimo-v2-flash:free";
+const model = "mistral-small-latest";
+
+function createMistralClient() {
+  const apiKey = process.env.MISTRAL_API_KEY;
+  if (!apiKey) {
+    throw new Error("MISTRAL_API_KEY is not set");
+  }
+  return new Mistral({ apiKey });
+}
+
+function extractTextFromMessageContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((chunk) => {
+      if (
+        chunk &&
+        typeof chunk === "object" &&
+        (chunk as { type?: unknown }).type === "text" &&
+        typeof (chunk as { text?: unknown }).text === "string"
+      ) {
+        return (chunk as { text: string }).text;
+      }
+      return "";
+    })
+    .join(" ")
+    .trim();
+}
+
+function buildCategoryResponseFormat(categories: string[]) {
+  return {
+    type: "json_schema" as const,
+    jsonSchema: {
+      name: "grocery_category",
+      description:
+        "Categorize a grocery item using exactly one of the allowed categories.",
+      strict: true,
+      schemaDefinition: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          category: {
+            type: "string",
+            enum: categories,
+          },
+        },
+        required: ["category"],
+      },
+    },
+  };
+}
+
+function extractCategoryFromStructuredResponse(
+  content: unknown,
+  categories: string[],
+): string | null {
+  const responseText = extractTextFromMessageContent(content);
+  if (!responseText) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(responseText) as { category?: unknown };
+    if (typeof parsed.category !== "string") {
+      return null;
+    }
+
+    const category = parsed.category.trim();
+    return categories.includes(category) ? category : null;
+  } catch {
+    return null;
+  }
+}
 
 // Query to get current user's store and grocery list
 export const getGroceryList = query({
@@ -36,12 +115,14 @@ export const getGroceryList = query({
 
     const items = await ctx.db
       .query("groceryItems")
-      .withIndex("by_store", (q) => q.eq("storeId", currentStore._id))
+      .withIndex("by_store", (q) => q.eq("storeId", currentStore?._id))
       .collect();
 
     const categories = await ctx.db
       .query("categories")
-      .withIndex("by_store_and_order", (q) => q.eq("storeId", currentStore._id))
+      .withIndex("by_store_and_order", (q) =>
+        q.eq("storeId", currentStore?._id),
+      )
       .collect();
 
     const itemsByCategory = items.reduce(
@@ -260,14 +341,14 @@ export const recategorizeAllItems = action({
       storeId: currentStore._id,
     });
 
-    const openai = await import("openai");
-    const client = new openai.default({
-      baseURL: "https://openrouter.ai/api/v1",
-      apiKey: process.env.CONVEX_OPEN_ROUTER_API_KEY,
-    });
+    const client = createMistralClient();
 
     // Get categories for current store
     const categories = groceryData.categories.map((cat) => cat.name);
+    if (categories.length === 0) {
+      return;
+    }
+    const responseFormat = buildCategoryResponseFormat(categories);
 
     for (const item of items) {
       const prompt = groceryItemPrompt(
@@ -277,14 +358,18 @@ export const recategorizeAllItems = action({
       );
 
       try {
-        const response = await client.chat.completions.create({
+        const response = await client.chat.complete({
           model,
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 50,
+          maxTokens: 50,
           temperature: 0.1,
+          responseFormat,
         });
 
-        const category = response.choices[0]?.message?.content?.trim();
+        const category = extractCategoryFromStructuredResponse(
+          response.choices[0]?.message?.content,
+          categories,
+        );
 
         if (category && categories.includes(category)) {
           await ctx.runMutation(api.groceries.updateItemCategory, {
@@ -453,30 +538,33 @@ export const categorizeItem = action({
 
     const currentStore = groceryData.currentStore;
     const categories = groceryData.categories.map((cat) => cat.name);
+    const allowedCategories =
+      categories.length > 0 ? categories : ["Uncategorized"];
 
     try {
-      const openai = await import("openai");
-      const client = new openai.default({
-        baseURL: "https://openrouter.ai/api/v1",
-        apiKey: process.env.CONVEX_OPEN_ROUTER_API_KEY,
-      });
+      const client = createMistralClient();
+      const responseFormat = buildCategoryResponseFormat(allowedCategories);
 
       const prompt = groceryItemPrompt(
         currentStore.name,
-        categories,
+        allowedCategories,
         args.itemName,
       );
 
-      const response = await client.chat.completions.create({
+      const response = await client.chat.complete({
         model,
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 50,
+        maxTokens: 50,
         temperature: 0.1,
+        responseFormat,
       });
 
       const category: string =
-        response.choices[0]?.message?.content?.trim() ||
-        categories[0] ||
+        extractCategoryFromStructuredResponse(
+          response.choices[0]?.message?.content,
+          allowedCategories,
+        ) ||
+        allowedCategories[0] ||
         "Uncategorized";
 
       // Add the item with the AI-determined category

@@ -33,6 +33,7 @@ const applicationTables = {
   appSettings: defineTable({
     password: v.optional(v.string()),
     currentStoreId: v.optional(v.id("stores")),
+    selectedModel: v.optional(v.string()),
   }),
 };
 
