@@ -1,0 +1,17 @@
+---
+description: Guidelines for maintaining user stories documentation in the project
+globs: **/*.ts,**/*.tsx,**/*.md
+---
+
+# User Stories Documentation
+
+## Location
+All user stories live in the `user-stories/` folder at the project root.
+
+## Rules
+- Every distinct feature must have its own markdown file in `user-stories/` (e.g. `01-bottom-navigation.md`).
+- When implementing a new feature or receiving new requirements from the user, create or update the corresponding user story file **before** writing code.
+- Files are numbered and named with a short kebab-case slug: `NN-feature-name.md`.
+- Keep each story **short and descriptive**: summary, key details, and behaviour notes. Avoid verbose prose.
+- When modifying an existing feature, update its user story to reflect the changes.
+- User stories serve as the single source of truth for feature intent; always reference them during implementation.

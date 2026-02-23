@@ -15,7 +15,10 @@ import type {
 } from "convex/server";
 import type * as groceries from "../groceries.js";
 import type * as http from "../http.js";
+import type * as mealPlans from "../mealPlans.js";
+import type * as nutritionGoals from "../nutritionGoals.js";
 import type * as prompts from "../prompts.js";
+import type * as recipes from "../recipes.js";
 import type * as router from "../router.js";
 
 /**
@@ -29,7 +32,10 @@ import type * as router from "../router.js";
 declare const fullApi: ApiFromModules<{
   groceries: typeof groceries;
   http: typeof http;
+  mealPlans: typeof mealPlans;
+  nutritionGoals: typeof nutritionGoals;
   prompts: typeof prompts;
+  recipes: typeof recipes;
   router: typeof router;
 }>;
 export declare const api: FilterApi<
