@@ -1,4 +1,5 @@
 import type { MacroTotals } from "../../lib/nutrition";
+import { Card, CardContent } from "../ui/card";
 
 type MacrosGridProps = {
   totalMacros: MacroTotals;
@@ -13,14 +14,13 @@ export function MacrosGrid({ totalMacros }: MacrosGridProps) {
         { label: "Carbs", value: `${Math.round(totalMacros.carbs)}`, unit: "g" },
         { label: "Fat", value: `${Math.round(totalMacros.fat)}`, unit: "g" },
       ].map((macro) => (
-        <div
-          key={macro.label}
-          className="bg-white rounded-lg border p-2.5 text-center"
-        >
-          <div className="text-xs text-gray-400">{macro.label}</div>
-          <div className="text-lg font-bold text-gray-900">{macro.value}</div>
-          <div className="text-xs text-gray-400">{macro.unit}</div>
-        </div>
+        <Card key={macro.label}>
+          <CardContent className="p-2.5 text-center">
+            <div className="text-xs text-muted-foreground">{macro.label}</div>
+            <div className="text-lg font-bold">{macro.value}</div>
+            <div className="text-xs text-muted-foreground">{macro.unit}</div>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );

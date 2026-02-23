@@ -1,6 +1,9 @@
 import { ReactNode, useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { Button } from "./ui/button";
+import { Card, CardContent } from "./ui/card";
+import { Input } from "./ui/input";
 
 export function InitializationGate({ children }: { children: ReactNode }) {
   const [unlocked, setUnlocked] = useState(false);
@@ -59,21 +62,22 @@ export function InitializationGate({ children }: { children: ReactNode }) {
 
   if (!unlocked && (checkingCookie || isPasswordSet === undefined)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
       </div>
     );
   }
 
   if (!unlocked) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-xl shadow-sm border p-8">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-8">
           <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            <h1 className="mb-2 text-2xl font-bold">
               🛒 Grocery List
             </h1>
-            <p className="text-gray-600">
+            <p className="text-muted-foreground">
               {isPasswordSet
                 ? "Enter password to continue"
                 : "Set an access password"}
@@ -81,40 +85,43 @@ export function InitializationGate({ children }: { children: ReactNode }) {
           </div>
           {isPasswordSet ? (
             <div className="space-y-3">
-              <input
+              <Input
                 type="password"
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
                 placeholder="Password"
-                className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all text-base"
+                className="h-11"
               />
-              <button
+              <Button
+                type="button"
                 onClick={() => void handleVerify()}
                 disabled={submitting}
-                className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-base"
+                className="h-11 w-full"
               >
                 {submitting ? "Checking..." : "Unlock"}
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="space-y-3">
-              <input
+              <Input
                 type="password"
                 value={settingPassword}
                 onChange={(e) => setSettingPassword(e.target.value)}
                 placeholder="Create a password"
-                className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all text-base"
+                className="h-11"
               />
-              <button
+              <Button
+                type="button"
                 onClick={() => void handleSetPassword()}
                 disabled={submitting}
-                className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white font-semibold py-3 px-4 rounded-lg transition-colors text-base"
+                className="h-11 w-full"
               >
                 {submitting ? "Saving..." : "Set Password"}
-              </button>
+              </Button>
             </div>
           )}
-        </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }

@@ -1,37 +1,68 @@
+import { useState } from "react";
+import { useAction, useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
+import { Button } from "../ui/button";
+
 type GenerateActionsProps = {
   targetMacrosAvailable: boolean;
-  generatingDayPlan: boolean;
-  generatingGroceryList: boolean;
-  onGenerateDayPlan: () => void;
-  onGenerateGroceryList: () => void;
+  currentDateKey: string;
+  startDate: string;
+  endDate: string;
 };
 
 export function GenerateActions({
   targetMacrosAvailable,
-  generatingDayPlan,
-  generatingGroceryList,
-  onGenerateDayPlan,
-  onGenerateGroceryList,
+  currentDateKey,
+  startDate,
+  endDate,
 }: GenerateActionsProps) {
+  const generateGroceryList = useAction(api.mealPlans.generateGroceryList);
+  const generateDayPlan = useMutation(api.mealPlans.generateDayPlan);
+  const [generatingDayPlan, setGeneratingDayPlan] = useState(false);
+  const [generatingGroceryList, setGeneratingGroceryList] = useState(false);
+
+  const handleGenerateDayPlan = async () => {
+    setGeneratingDayPlan(true);
+    try {
+      await generateDayPlan({ date: currentDateKey });
+    } finally {
+      setGeneratingDayPlan(false);
+    }
+  };
+
+  const handleGenerateGroceryList = async () => {
+    setGeneratingGroceryList(true);
+    try {
+      await generateGroceryList({ startDate, endDate });
+    } finally {
+      setGeneratingGroceryList(false);
+    }
+  };
+
   return (
     <>
-      <button
-        onClick={onGenerateDayPlan}
+      <Button
+        type="button"
+        onClick={() => void handleGenerateDayPlan()}
         disabled={generatingDayPlan || !targetMacrosAvailable}
-        className="mb-4 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-semibold py-3 rounded-lg transition-colors text-sm"
+        className="mb-4 w-full"
       >
-        {generatingDayPlan ? "Generating day plan..." : "Generate Day Plan (Fit Goals)"}
-      </button>
+        {generatingDayPlan
+          ? "Generating day plan..."
+          : "Generate Day Plan (Fit Goals)"}
+      </Button>
 
-      <button
-        onClick={onGenerateGroceryList}
+      <Button
+        type="button"
+        onClick={() => void handleGenerateGroceryList()}
         disabled={generatingGroceryList}
-        className="mt-6 w-full bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-semibold py-3 rounded-lg transition-colors text-sm"
+        variant="secondary"
+        className="mb-4 w-full"
       >
         {generatingGroceryList
           ? "Generating grocery list..."
           : "Generate Grocery List for This Week"}
-      </button>
+      </Button>
     </>
   );
 }

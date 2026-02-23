@@ -3,6 +3,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { Doc } from "../../convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { Button } from "./ui/button";
+import { Card, CardContent } from "./ui/card";
 
 export function SortableCategory({
   category,
@@ -80,35 +82,35 @@ export function SortableCategory({
   };
 
   return (
-    <div
+    <Card
       ref={setNodeRef}
       style={style}
-      className={`bg-white overflow-hidden select-none rounded-xl shadow-sm border transition-shadow ${
+      className={`overflow-hidden select-none transition-shadow ${
         isDragging ? "shadow-lg opacity-50" : ""
       }`}
     >
       <div
         {...attributes}
         {...listeners}
-        className="flex items-center gap-3 p-4 border-b border-gray-100 cursor-grab active:cursor-grabbing"
+        className="flex cursor-grab items-center gap-3 border-b p-4 active:cursor-grabbing"
         style={{ backgroundColor: category.color + "10" }}
       >
         <div
           className="w-4 h-4 rounded-full"
           style={{ backgroundColor: category.color }}
         ></div>
-        <h2 className="font-semibold text-gray-900 flex-1">{category.name}</h2>
-        <div className="text-sm text-gray-500">
+        <h2 className="flex-1 font-semibold">{category.name}</h2>
+        <div className="text-sm text-muted-foreground">
           {items.length} item{items.length !== 1 ? "s" : ""}
         </div>
-        <div className="text-gray-400">
+        <div className="text-muted-foreground">
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
             <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"></path>
           </svg>
         </div>
       </div>
 
-      <div className="p-2">
+      <CardContent className="p-2">
         {items.map((item) => (
           <div
             key={item._id}
@@ -116,12 +118,15 @@ export function SortableCategory({
               item.isCompleted ? "opacity-60" : ""
             }`}
           >
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => void toggleCompletion({ itemId: item._id })}
-              className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+              className={`h-6 w-6 rounded-full border-2 transition-colors ${
                 item.isCompleted
-                  ? "bg-green-500 border-green-500 text-white"
-                  : "border-gray-300 hover:border-green-400"
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-input text-muted-foreground hover:border-primary/60"
               }`}
             >
               {item.isCompleted && (
@@ -137,19 +142,22 @@ export function SortableCategory({
                   ></path>
                 </svg>
               )}
-            </button>
+            </Button>
             <span
               className={`flex-1 text-base ${
                 item.isCompleted
-                  ? "line-through text-gray-500"
-                  : "text-gray-900"
+                  ? "line-through text-muted-foreground"
+                  : "text-foreground"
               }`}
             >
               {item.name}
             </span>
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => void deleteItem({ itemId: item._id })}
-              className="text-gray-400 hover:text-red-500 transition-colors p-1"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path
@@ -158,10 +166,10 @@ export function SortableCategory({
                   clipRule="evenodd"
                 ></path>
               </svg>
-            </button>
+            </Button>
           </div>
         ))}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,4 +1,5 @@
 import { formatDateKey } from "../../lib/date";
+import { Button } from "../ui/button";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -25,24 +26,22 @@ export function DaySelector({
         const isGreen = dayStatusByDate[formatDateKey(date)] ?? false;
 
         return (
-          <button
+          <Button
+            type="button"
+            variant={isSelected ? "default" : "outline"}
             key={index}
             onClick={() => setSelectedDay(index)}
-            className={`flex-1 min-w-[3rem] py-2 rounded-lg text-center transition-colors ${
-              isSelected && isGreen
-                ? "bg-green-600 text-white"
-                : isSelected
-                  ? "bg-blue-500 text-white"
-                  : isGreen
-                    ? "bg-green-50 text-green-700 border border-green-200"
-                    : isToday
-                      ? "bg-blue-50 text-blue-600 border border-blue-200"
-                      : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+            className={`h-auto min-w-[3rem] flex-1 py-2 text-center ${
+              !isSelected && isGreen
+                ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
+                : !isSelected && isToday
+                  ? "border-accent/30 bg-accent/10 text-accent hover:bg-accent/15"
+                  : ""
             }`}
           >
             <div className="text-xs">{DAY_LABELS[index]}</div>
             <div className="text-sm font-semibold">{date.getDate()}</div>
-          </button>
+          </Button>
         );
       })}
     </div>

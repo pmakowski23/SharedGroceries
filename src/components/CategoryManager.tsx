@@ -3,6 +3,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "./ui/select";
 import { Doc, Id } from "../../convex/_generated/dataModel";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 
 export function CategoryManager({
   storeId,
@@ -157,37 +165,22 @@ export function CategoryManager({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[80vh] overflow-y-auto overflow-x-hidden">
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">
-              Manage Categories
-            </h2>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                ></path>
-              </svg>
-            </button>
-          </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[80vh] overflow-y-auto overflow-x-hidden">
+        <DialogHeader>
+          <DialogTitle>Manage Categories</DialogTitle>
+        </DialogHeader>
 
-          <div className="space-y-3 mb-6">
+          <div className="mb-6 space-y-3">
             {categories.map((category) => (
               <div
                 key={category._id}
-                className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg flex-wrap sm:flex-nowrap"
+                className="flex flex-wrap items-center gap-3 rounded-lg border p-3 sm:flex-nowrap"
               >
                 {editingCategory?._id === category._id ? (
                   <>
                     <div className="flex gap-2 flex-1 min-w-0">
-                      <input
+                      <Input
                         type="text"
                         value={editingCategory?.name ?? ""}
                         onChange={(e) =>
@@ -196,7 +189,7 @@ export function CategoryManager({
                             name: e.target.value,
                           })
                         }
-                        className="flex-1 min-w-0 px-2 py-1 border border-gray-200 rounded text-sm"
+                        className="h-8 min-w-0 flex-1"
                       />
                       <div className="sm:w-32 w-full">
                         <Select
@@ -240,18 +233,22 @@ export function CategoryManager({
                         </Select>
                       </div>
                     </div>
-                    <button
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
                       onClick={() => handleSave(category._id)}
-                      className="text-green-600 hover:text-green-700 text-sm"
                     >
                       Save
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
                       onClick={() => setEditingCategory(null)}
-                      className="text-gray-500 hover:text-gray-600 text-sm"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </>
                 ) : (
                   <>
@@ -262,20 +259,24 @@ export function CategoryManager({
                     <span className="flex-1 text-sm font-medium">
                       {category.name}
                     </span>
-                    <button
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
                       onClick={() => setEditingCategory(category)}
-                      className="text-blue-600 hover:text-blue-700 text-sm"
                     >
                       Edit
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
                       onClick={() => {
                         void handleDeleteCategory(category._id);
                       }}
-                      className="text-red-600 hover:text-red-700 text-sm"
                     >
                       Delete
-                    </button>
+                    </Button>
                   </>
                 )}
               </div>
@@ -283,14 +284,14 @@ export function CategoryManager({
           </div>
 
           {showAddForm ? (
-            <div className="p-3 bg-gray-50 rounded-lg">
+            <div className="rounded-lg bg-muted p-3">
               <div className="flex gap-2 mb-3 flex-wrap">
-                <input
+                <Input
                   type="text"
                   placeholder="Category name"
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
-                  className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded text-sm"
+                  className="min-w-0 flex-1"
                 />
                 <div className="sm:w-36 w-full">
                   <Select
@@ -325,30 +326,29 @@ export function CategoryManager({
                 </div>
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={() => handleSave()}
-                  className="px-4 py-2 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
-                >
+                <Button type="button" onClick={() => handleSave()}>
                   Add Category
-                </button>
-                <button
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={() => setShowAddForm(false)}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded text-sm hover:bg-gray-400"
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
-            <button
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => setShowAddForm(true)}
-              className="w-full px-4 py-2 border-2 border-dashed border-gray-300 text-gray-600 rounded-lg hover:border-gray-400 hover:text-gray-700 transition-colors"
+              className="w-full border-dashed"
             >
               + Add New Category
-            </button>
+            </Button>
           )}
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

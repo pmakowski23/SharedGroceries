@@ -1,4 +1,5 @@
 import { isWithinTolerance, type MacroTotals } from "../../lib/nutrition";
+import { Card, CardContent } from "../ui/card";
 
 type MacroProgressCardProps = {
   dayMacros: MacroTotals;
@@ -14,8 +15,9 @@ export function MacroProgressCard({
   if (!targetMacros) return null;
 
   return (
-    <div className="bg-white rounded-xl border p-3 mb-4">
-      <div className="text-xs font-semibold text-gray-600 mb-2">
+    <Card className="mb-4">
+      <CardContent className="p-3">
+      <div className="mb-2 text-xs font-semibold text-muted-foreground">
         Actual / Goal / Diff
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs">
@@ -50,22 +52,22 @@ export function MacroProgressCard({
           const fillPct =
             item.target > 0 ? Math.min((item.actual / item.target) * 100, 100) : 0;
           const fillColorClass = within
-            ? "bg-green-100"
+            ? "bg-primary/20"
             : diff > 0
-              ? "bg-red-100"
-              : "bg-blue-100";
+              ? "bg-destructive/20"
+              : "bg-secondary";
 
           return (
             <div
               key={item.label}
-              className="relative overflow-hidden border rounded-lg px-2 py-1.5 bg-white"
+              className="relative overflow-hidden rounded-lg border bg-card px-2 py-1.5"
             >
               <div
                 className={`absolute inset-y-0 left-0 ${fillColorClass}`}
                 style={{ width: `${fillPct}%` }}
               />
-              <div className="relative text-gray-400">{item.label}</div>
-              <div className="relative font-semibold text-gray-700">
+              <div className="relative text-muted-foreground">{item.label}</div>
+              <div className="relative font-semibold">
                 {Math.round(item.actual)}
                 {item.unit} / {Math.round(item.target)}
                 {item.unit}
@@ -74,9 +76,10 @@ export function MacroProgressCard({
           );
         })}
       </div>
-      <div className="text-[11px] text-gray-400 mt-2">
+      <div className="mt-2 text-[11px] text-muted-foreground">
         Green day means kcal + all macros are within +/-{tolerancePct}%.
       </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

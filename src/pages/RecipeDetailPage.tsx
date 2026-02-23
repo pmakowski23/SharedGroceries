@@ -9,6 +9,7 @@ import { MacrosGrid } from "../components/recipes/MacrosGrid";
 import { MealTagSelector, type MealTag } from "../components/recipes/MealTagSelector";
 import { RecipeHeader } from "../components/recipes/RecipeHeader";
 import { ServingsControl } from "../components/recipes/ServingsControl";
+import { Button } from "../components/ui/button";
 import { useScaledRecipeNutrition } from "../hooks/useScaledRecipeNutrition";
 
 export function RecipeDetailPage() {
@@ -26,10 +27,15 @@ export function RecipeDetailPage() {
   const [adding, setAdding] = useState(false);
   const [savingTags, setSavingTags] = useState(false);
 
+  const fallbackServings = recipe?.servings ?? 1;
+  const fallbackIngredients = ingredients ?? [];
+  const { displayServings, setServings, scale, totalMacros } =
+    useScaledRecipeNutrition(fallbackServings, fallbackIngredients);
+
   if (recipe === undefined || ingredients === undefined) {
     return (
       <div className="flex justify-center py-20">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
       </div>
     );
   }
@@ -37,19 +43,18 @@ export function RecipeDetailPage() {
   if (recipe === null) {
     return (
       <div className="max-w-md mx-auto px-4 py-12 text-center">
-        <p className="text-gray-500">Recipe not found.</p>
-        <button
+        <p className="text-muted-foreground">Recipe not found.</p>
+        <Button
+          type="button"
           onClick={() => void navigate({ to: "/recipes" })}
-          className="mt-4 text-blue-500 underline text-sm"
+          variant="link"
+          className="mt-4"
         >
           Back to recipes
-        </button>
+        </Button>
       </div>
     );
   }
-
-  const { displayServings, setServings, scale, totalMacros } =
-    useScaledRecipeNutrition(recipe.servings, ingredients);
 
   const handleToggleMealTag = async (mealTag: MealTag) => {
     const hasTag = recipe.mealTags.includes(mealTag);
@@ -114,13 +119,14 @@ export function RecipeDetailPage() {
       />
       <MacrosGrid totalMacros={totalMacros} />
       <IngredientsList ingredients={ingredients} scale={scale} />
-      <button
+      <Button
+        type="button"
         onClick={() => void handleAddToGroceryList()}
         disabled={adding}
-        className="mt-4 w-full bg-green-600 hover:bg-green-700 disabled:bg-green-300 text-white font-semibold py-3 rounded-lg transition-colors text-sm"
+        className="mt-4 w-full"
       >
         {adding ? "Adding..." : "Add Ingredients to Grocery List"}
-      </button>
+      </Button>
       <InstructionsList instructions={recipe.instructions} />
     </div>
   );

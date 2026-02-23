@@ -1,3 +1,5 @@
+import { Button } from "../ui/button";
+
 type ServingsControlProps = {
   servings: number;
   onDecrease: () => void;
@@ -11,20 +13,26 @@ export function ServingsControl({
 }: ServingsControlProps) {
   return (
     <div className="flex items-center gap-3 mt-4">
-      <span className="text-sm text-gray-600">Servings:</span>
-      <button
+      <span className="text-sm text-muted-foreground">Servings:</span>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
         onClick={onDecrease}
-        className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-100"
+        className="h-8 w-8 rounded-full"
       >
         -
-      </button>
+      </Button>
       <span className="text-lg font-semibold w-8 text-center">{servings}</span>
-      <button
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
         onClick={onIncrease}
-        className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center text-gray-600 hover:bg-gray-100"
+        className="h-8 w-8 rounded-full"
       >
         +
-      </button>
+      </Button>
     </div>
   );
 }

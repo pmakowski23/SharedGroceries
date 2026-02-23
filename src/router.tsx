@@ -6,20 +6,27 @@ import {
 } from "@tanstack/react-router";
 import { BottomNav } from "./components/BottomNav";
 import { InitializationGate } from "./components/InitializationGate";
+import { NutritionTargetsGate } from "./components/NutritionTargetsGate";
 import { GroceryListPage } from "./pages/GroceryListPage";
 import { RecipesPage } from "./pages/RecipesPage";
 import { MealPlannerPage } from "./pages/MealPlannerPage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
 import { MealGoalSettingsPage } from "./pages/MealGoalSettingsPage";
+import { ErrorFallbackPage } from "./pages/ErrorFallbackPage";
 
 const rootRoute = createRootRoute({
   component: () => (
     <InitializationGate>
-      <div className="min-h-screen bg-gray-50 pb-20">
-        <Outlet />
-        <BottomNav />
-      </div>
+      <NutritionTargetsGate>
+        <div className="min-h-screen bg-gray-50 pb-20">
+          <Outlet />
+          <BottomNav />
+        </div>
+      </NutritionTargetsGate>
     </InitializationGate>
+  ),
+  errorComponent: ({ error, reset }) => (
+    <ErrorFallbackPage error={error} onTryAgain={reset} />
   ),
 });
 

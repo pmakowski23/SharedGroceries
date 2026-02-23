@@ -1,9 +1,16 @@
+import { useMemo, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
+import { Minus, Plus, X } from "lucide-react";
+import { Button } from "../ui/button";
+import { Card, CardContent } from "../ui/card";
 
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
 
 type PlannedMeal = {
   _id: Id<"mealPlans">;
+  date: string;
   mealType: string;
   servings: number;
   recipeName: string;
@@ -13,37 +20,35 @@ type PlannedMeal = {
   totalFat?: number | null;
 };
 
-type RecipeListItem = {
-  _id: Id<"recipes">;
-  name: string;
-  totalKcal?: number | null;
-};
-
 type MealSlotsProps = {
-  mealPlanLoaded: boolean;
-  dayMeals: Array<PlannedMeal>;
-  recipes: Array<RecipeListItem>;
-  addingSlot: string | null;
-  setAddingSlot: (slot: string | null) => void;
-  onAddMeal: (mealType: string, recipeId: Id<"recipes">) => void;
-  onRemoveMeal: (mealPlanId: Id<"mealPlans">) => void;
-  onUpdateServings: (mealPlanId: Id<"mealPlans">, servings: number) => void;
+  mealPlan: Array<PlannedMeal> | undefined;
+  currentDateKey: string;
 };
 
 export function MealSlots({
-  mealPlanLoaded,
-  dayMeals,
-  recipes,
-  addingSlot,
-  setAddingSlot,
-  onAddMeal,
-  onRemoveMeal,
-  onUpdateServings,
+  mealPlan,
+  currentDateKey,
 }: MealSlotsProps) {
+  const [addingSlot, setAddingSlot] = useState<string | null>(null);
+  const recipes = useQuery(api.recipes.list, {}) ?? [];
+  const addMeal = useMutation(api.mealPlans.addMeal);
+  const removeMeal = useMutation(api.mealPlans.removeMeal);
+  const updateServings = useMutation(api.mealPlans.updateServings);
+  const dayMeals = useMemo(
+    () => (mealPlan ?? []).filter((m) => m.date === currentDateKey),
+    [currentDateKey, mealPlan],
+  );
+  const mealPlanLoaded = mealPlan !== undefined;
+
+  const handleAddMeal = async (mealType: string, recipeId: Id<"recipes">) => {
+    await addMeal({ date: currentDateKey, mealType, recipeId, servings: 1 });
+    setAddingSlot(null);
+  };
+
   if (!mealPlanLoaded) {
     return (
       <div className="flex justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
       </div>
     );
   }
@@ -55,11 +60,12 @@ export function MealSlots({
         const isAdding = addingSlot === mealType;
 
         return (
-          <div key={mealType} className="bg-white rounded-xl border p-4">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-gray-700">{mealType}</h3>
+          <Card key={mealType}>
+            <CardContent className="p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-muted-foreground">{mealType}</h3>
               {meal && (
-                <div className="text-xs text-gray-400">
+                <div className="text-xs text-muted-foreground">
                   {Math.round(meal.totalKcal ?? 0)} kcal
                 </div>
               )}
@@ -68,43 +74,53 @@ export function MealSlots({
             {meal ? (
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-800 font-medium">
+                  <span className="text-sm font-medium">
                     {meal.recipeName}
                   </span>
-                  <button
-                    onClick={() => onRemoveMeal(meal._id)}
-                    className="p-1 text-gray-300 hover:text-red-500"
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void removeMeal({ mealPlanId: meal._id })}
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    aria-label={`Remove ${meal.recipeName}`}
                   >
-                    <svg
-                      className="w-4 h-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
-                    </svg>
-                  </button>
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-gray-500">Servings:</span>
-                  <button
+                  <span className="text-xs text-muted-foreground">Servings:</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
                     onClick={() =>
-                      onUpdateServings(meal._id, Math.max(1, meal.servings - 1))
+                      void updateServings({
+                        mealPlanId: meal._id,
+                        servings: Math.max(1, meal.servings - 1),
+                      })
                     }
-                    className="w-6 h-6 rounded-full border text-xs flex items-center justify-center text-gray-600 hover:bg-gray-100"
+                    className="h-6 w-6 rounded-full"
                   >
-                    -
-                  </button>
+                    <Minus className="h-3 w-3" />
+                  </Button>
                   <span className="text-sm font-medium">{meal.servings}</span>
-                  <button
-                    onClick={() => onUpdateServings(meal._id, meal.servings + 1)}
-                    className="w-6 h-6 rounded-full border text-xs flex items-center justify-center text-gray-600 hover:bg-gray-100"
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() =>
+                      void updateServings({
+                        mealPlanId: meal._id,
+                        servings: meal.servings + 1,
+                      })
+                    }
+                    className="h-6 w-6 rounded-full"
                   >
-                    +
-                  </button>
+                    <Plus className="h-3 w-3" />
+                  </Button>
                 </div>
-                <div className="flex gap-3 mt-2 text-xs text-gray-400">
+                <div className="mt-2 flex gap-3 text-xs text-muted-foreground">
                   <span>P: {Math.round(meal.totalProtein ?? 0)}g</span>
                   <span>C: {Math.round(meal.totalCarbs ?? 0)}g</span>
                   <span>F: {Math.round(meal.totalFat ?? 0)}g</span>
@@ -113,41 +129,49 @@ export function MealSlots({
             ) : isAdding ? (
               <div className="space-y-2">
                 {recipes.length === 0 ? (
-                  <p className="text-xs text-gray-400 py-2">
+                  <p className="py-2 text-xs text-muted-foreground">
                     No recipes yet. Create one in the Recipes tab.
                   </p>
                 ) : (
                   <div className="max-h-40 overflow-y-auto space-y-1">
                     {recipes.map((recipe) => (
-                      <button
+                      <Button
                         key={recipe._id}
-                        onClick={() => onAddMeal(mealType, recipe._id)}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm text-gray-700 border border-gray-100"
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleAddMeal(mealType, recipe._id)}
+                        className="h-auto w-full justify-start px-3 py-2 text-left"
                       >
                         <span className="font-medium">{recipe.name}</span>
-                        <span className="text-gray-400 ml-2 text-xs">
+                        <span className="ml-2 text-xs text-muted-foreground">
                           {recipe.totalKcal} kcal
                         </span>
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 )}
-                <button
+                <Button
+                  type="button"
                   onClick={() => setAddingSlot(null)}
-                  className="text-xs text-gray-400 hover:text-gray-600"
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto px-0 text-xs text-muted-foreground"
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             ) : (
-              <button
+              <Button
+                type="button"
+                variant="outline"
                 onClick={() => setAddingSlot(mealType)}
-                className="w-full py-2 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
+                className="w-full border-dashed text-muted-foreground hover:text-foreground"
               >
                 + Add recipe
-              </button>
+              </Button>
             )}
-          </div>
+            </CardContent>
+          </Card>
         );
       })}
     </div>

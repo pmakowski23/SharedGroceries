@@ -1,3 +1,6 @@
+import { Button } from "../ui/button";
+import { Card, CardContent } from "../ui/card";
+
 type Suggestion = {
   canSuggest: boolean;
   bmr?: number | null;
@@ -20,22 +23,26 @@ export function SuggestedTargetsSection({
   onApplySuggestion,
 }: SuggestedTargetsSectionProps) {
   return (
-    <div className="bg-white rounded-xl border p-4 space-y-3">
-      <h2 className="text-sm font-semibold text-gray-700">Suggested targets</h2>
+    <Card>
+      <CardContent className="space-y-3 p-4">
+      <h2 className="text-sm font-semibold text-muted-foreground">Suggested targets</h2>
       {suggestion?.canSuggest && suggestion.suggestion ? (
-        <div className="text-xs text-gray-500">
+        <div className="text-xs text-muted-foreground">
           BMR {suggestion.bmr} kcal, TDEE {suggestion.tdee} kcal
         </div>
       ) : (
-        <div className="text-xs text-amber-600">{suggestion?.reason}</div>
+        <div className="text-xs text-accent">{suggestion?.reason}</div>
       )}
-      <button
+      <Button
+        type="button"
         onClick={onApplySuggestion}
         disabled={!suggestion?.canSuggest}
-        className="w-full border border-blue-200 text-blue-600 font-medium py-2.5 rounded-lg text-sm disabled:text-gray-400 disabled:border-gray-200"
+        variant="secondary"
+        className="w-full"
       >
         Apply suggested goals
-      </button>
-    </div>
+      </Button>
+      </CardContent>
+    </Card>
   );
 }

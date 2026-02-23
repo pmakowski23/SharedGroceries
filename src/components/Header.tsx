@@ -2,6 +2,7 @@ import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { useQuery } from "convex/react";
 import { Id } from "../../convex/_generated/dataModel";
+import { Button } from "./ui/button";
 
 export function Header({
   currentStore,
@@ -35,13 +36,16 @@ export function Header({
     );
 
   return (
-    <header className="bg-white shadow-sm border-b sticky top-0 z-40">
+    <header className="sticky top-0 z-40 border-b bg-card/95 shadow-sm backdrop-blur">
       <div className="max-w-md mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">🛒 Grocery Lists</h1>
+          <h1 className="text-2xl font-bold">🛒 Grocery Lists</h1>
           <div className="flex items-center gap-2">
             {currentStore && hasCompleted && (
-              <button
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
                 aria-label="Clear completed"
                 onClick={() =>
                   currentStore?._id &&
@@ -49,7 +53,7 @@ export function Header({
                     storeId: currentStore._id as Id<"stores">,
                   })
                 }
-                className="text-red-600 hover:text-red-700 p-2"
+                className="text-destructive hover:text-destructive"
                 title="Clear completed"
               >
                 <svg
@@ -71,11 +75,13 @@ export function Header({
                   />
                   <path d="M10 10v8M14 10v8" strokeLinecap="round" />
                 </svg>
-              </button>
+              </Button>
             )}
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
               onClick={onToggleStoreManager}
-              className="text-gray-600 hover:text-gray-800 p-2"
               title="List Settings"
             >
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -85,11 +91,11 @@ export function Header({
                   clipRule="evenodd"
                 ></path>
               </svg>
-            </button>
+            </Button>
           </div>
         </div>
         {currentStore && (
-          <div className="text-sm text-gray-600 mt-1">
+          <div className="mt-1 text-sm text-muted-foreground">
             Active list:{" "}
             <span className="font-medium">{currentStore.name}</span>
           </div>

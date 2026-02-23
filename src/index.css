@@ -3,45 +3,54 @@
 @tailwind utilities;
 
 :root {
-  --color-light: #ffffff;
-  --color-dark: #171717;
+  --background: 35 100% 99%;
+  --foreground: 30 13% 16%;
+  --card: 0 0% 100%;
+  --card-foreground: 30 13% 16%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 30 13% 16%;
+  --primary: 127 22% 39%;
+  --primary-foreground: 120 100% 98%;
+  --secondary: 34 45% 91%;
+  --secondary-foreground: 31 21% 19%;
+  --muted: 34 45% 94%;
+  --muted-foreground: 29 10% 39%;
+  --accent: 23 55% 51%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 34 42% 85%;
+  --input: 34 42% 85%;
+  --ring: 28 37% 44%;
+  --radius: 0.75rem;
 }
 
-.accent-text {
-  @apply text-slate-600;
-}
+@layer base {
+  * {
+    @apply border-border;
+  }
 
-body {
-  font-family:
-    "Inter Variable",
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    "Noto Sans",
-    sans-serif,
-    "Apple Color Emoji",
-    "Segoe UI Emoji",
-    "Segoe UI Symbol",
-    "Noto Color Emoji";
-  color: var(--color-dark);
-  background: var(--color-light);
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family:
+      "Inter Variable",
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      "Helvetica Neue",
+      Arial,
+      "Noto Sans",
+      sans-serif,
+      "Apple Color Emoji",
+      "Segoe UI Emoji",
+      "Segoe UI Symbol",
+      "Noto Color Emoji";
+  }
 }
 
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-
-/* only use this to update the style of the auth input fields. use a different class for all other input fields */
-.auth-input-field {
-  @apply w-full px-4 py-3 rounded-container bg-white border border-gray-200 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-shadow shadow-sm hover:shadow;
-}
-
-/* only use this to update the style of the auth buttons. use the button class for all other buttons */
-.auth-button {
-  @apply w-full px-4 py-3 rounded bg-primary text-white font-semibold hover:bg-primary-hover transition-colors shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed;
 }

@@ -1,6 +1,7 @@
 import { CategoryListDnd } from "../components/CategoryListDnd";
 import { StoreManager } from "../components/StoreManager";
 import { AddItemForm } from "../components/AddItemForm";
+import { Button } from "../components/ui/button";
 import { useGroceryListViewModel } from "../hooks/useGroceryListViewModel";
 
 export function GroceryListPage() {
@@ -16,7 +17,7 @@ export function GroceryListPage() {
   if (!groceryData?.currentStore) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500" />
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
       </div>
     );
   }
@@ -24,13 +25,16 @@ export function GroceryListPage() {
   return (
     <div className="max-w-md mx-auto px-4 py-6">
       <div className="flex items-start justify-between mb-2">
-        <h1 className="text-2xl font-bold text-gray-900">Groceries</h1>
+        <h1 className="text-2xl font-bold">Groceries</h1>
         <div className="flex items-center gap-2">
           {groceryData.currentStore && hasCompleted && (
-            <button
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
               aria-label="Clear completed"
               onClick={clearCompletedForCurrentStore}
-              className="text-red-600 hover:text-red-700 p-2"
+              className="text-destructive hover:text-destructive"
               title="Clear completed"
             >
               <svg
@@ -52,11 +56,13 @@ export function GroceryListPage() {
                 />
                 <path d="M10 10v8M14 10v8" strokeLinecap="round" />
               </svg>
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
             onClick={toggleStoreManager}
-            className="text-gray-600 hover:text-gray-800 p-2"
             title="List Settings"
           >
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -66,11 +72,11 @@ export function GroceryListPage() {
                 clipRule="evenodd"
               ></path>
             </svg>
-          </button>
+          </Button>
         </div>
       </div>
       {groceryData.currentStore && (
-        <div className="text-sm text-gray-600 mb-4">
+        <div className="mb-4 text-sm text-muted-foreground">
           Active list: <span className="font-medium">{groceryData.currentStore.name}</span>
         </div>
       )}
@@ -93,10 +99,10 @@ export function GroceryListPage() {
       {categoriesWithItems.length === 0 && (
         <div className="text-center py-12">
           <div className="text-6xl mb-4">🛒</div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+          <h3 className="mb-2 text-lg font-semibold">
             Your grocery list is empty
           </h3>
-          <p className="text-gray-500">
+          <p className="text-muted-foreground">
             Add your first item above to get started!
           </p>
         </div>

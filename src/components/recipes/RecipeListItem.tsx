@@ -1,5 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { Id } from "../../../convex/_generated/dataModel";
+import { X } from "lucide-react";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Card, CardContent } from "../ui/card";
 
 type RecipeListItemProps = {
   recipe: {
@@ -18,50 +22,47 @@ export function RecipeListItem({ recipe, onDelete }: RecipeListItemProps) {
     <Link
       to="/recipes/$recipeId"
       params={{ recipeId: recipe._id }}
-      className="block bg-white rounded-xl shadow-sm border p-4 hover:shadow transition-shadow"
+      className="block"
     >
-      <div className="flex items-start justify-between">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-gray-900 truncate">{recipe.name}</h3>
+      <Card className="transition-shadow hover:shadow-md">
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between">
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate font-semibold">{recipe.name}</h3>
           {recipe.description && (
-            <p className="text-sm text-gray-500 mt-0.5 line-clamp-2">
+                <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
               {recipe.description}
             </p>
           )}
-          <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-            <span>{recipe.servings} servings</span>
-            <span>{recipe.totalKcal} kcal</span>
+              <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                <span>{recipe.servings} servings</span>
+                <span>{recipe.totalKcal} kcal</span>
           </div>
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {recipe.mealTags.map((tag) => (
-              <span
-                key={tag}
-                className="text-[11px] px-2 py-0.5 rounded-full border border-gray-200 text-gray-500"
-              >
-                {tag}
-              </span>
-            ))}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {recipe.mealTags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="text-[11px]">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDelete(recipe._id);
+              }}
+              className="ml-2 text-muted-foreground hover:text-destructive"
+              aria-label={`Delete ${recipe.name}`}
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </div>
-        </div>
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onDelete(recipe._id);
-          }}
-          className="ml-2 p-1.5 text-gray-300 hover:text-red-500 transition-colors"
-        >
-          <svg
-            className="w-4 h-4"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
+        </CardContent>
+      </Card>
     </Link>
   );
 }

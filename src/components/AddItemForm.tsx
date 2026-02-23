@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { useForm } from "@tanstack/react-form";
+import { Button } from "./ui/button";
+import { Card, CardContent } from "./ui/card";
+import { Input } from "./ui/input";
 
 export function AddItemForm() {
   const categorizeItem = useAction(api.groceries.categorizeItem);
@@ -24,7 +27,8 @@ export function AddItemForm() {
   });
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-4 mb-6">
+    <Card className="mb-6">
+      <CardContent className="p-4">
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -37,22 +41,23 @@ export function AddItemForm() {
           name="itemName"
           children={(field) => (
             <div className="flex items-center gap-2">
-              <input
+              <Input
                 type="text"
                 placeholder="Add grocery item..."
                 value={field.state.value}
                 onChange={(e) => field.handleChange(e.target.value)}
-                className="flex-1 px-4 py-3 rounded-lg border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all text-base"
+                className="h-11 flex-1"
                 disabled={isAdding}
               />
-              <button
+              <Button
                 type="submit"
                 disabled={isAdding}
                 aria-label="Add item"
-                className="h-12 w-12 shrink-0 inline-flex items-center justify-center bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white rounded-lg transition-colors"
+                size="icon"
+                className="h-11 w-11 shrink-0"
               >
                 {isAdding ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
                 ) : (
                   <svg
                     className="w-5 h-5"
@@ -74,11 +79,12 @@ export function AddItemForm() {
                     />
                   </svg>
                 )}
-              </button>
+              </Button>
             </div>
           )}
         />
       </form>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
