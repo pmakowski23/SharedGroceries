@@ -1,11 +1,15 @@
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
+import { Label } from "../ui/label";
+import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 
 type RecipeAIGeneratorProps = {
   showGenerate: boolean;
   aiPrompt: string;
   setAiPrompt: (value: string) => void;
+  includeGoalsContext: boolean;
+  setIncludeGoalsContext: (value: boolean) => void;
   generating: boolean;
   onGenerate: () => void;
 };
@@ -14,6 +18,8 @@ export function RecipeAIGenerator({
   showGenerate,
   aiPrompt,
   setAiPrompt,
+  includeGoalsContext,
+  setIncludeGoalsContext,
   generating,
   onGenerate,
 }: RecipeAIGeneratorProps) {
@@ -31,6 +37,19 @@ export function RecipeAIGenerator({
             rows={3}
             className="resize-none"
           />
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border p-3">
+            <Label
+              htmlFor="include-goals-context"
+              className="text-sm text-muted-foreground"
+            >
+              Include my nutrition goals in AI prompt
+            </Label>
+            <Switch
+              id="include-goals-context"
+              checked={includeGoalsContext}
+              onCheckedChange={setIncludeGoalsContext}
+            />
+          </div>
           <Button
             onClick={onGenerate}
             disabled={generating || !aiPrompt.trim()}

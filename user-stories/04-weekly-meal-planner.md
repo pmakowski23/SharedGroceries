@@ -16,7 +16,7 @@ Users assign recipes to days of the week across meal slots or auto-generate a da
 - Day is **green** only when kcal + all macros are each within +/-5% of targets.
 
 ## Features
-- Add a recipe to a slot (pick from saved recipes).
+- Add a recipe to a slot via modal picker (pick from saved recipes).
 - Change serving count per slot.
 - Remove a recipe from a slot.
 - Navigate weeks (previous / next).

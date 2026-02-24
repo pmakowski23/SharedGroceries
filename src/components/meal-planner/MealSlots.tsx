@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
 import { Minus, Plus, X } from "lucide-react";
+import { AddRecipeDialog } from "./AddRecipeDialog";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 
@@ -29,9 +30,7 @@ export function MealSlots({
   mealPlan,
   currentDateKey,
 }: MealSlotsProps) {
-  const [addingSlot, setAddingSlot] = useState<string | null>(null);
-  const recipes = useQuery(api.recipes.list, {}) ?? [];
-  const addMeal = useMutation(api.mealPlans.addMeal);
+  const [selectedMealType, setSelectedMealType] = useState<string | null>(null);
   const removeMeal = useMutation(api.mealPlans.removeMeal);
   const updateServings = useMutation(api.mealPlans.updateServings);
   const dayMeals = useMemo(
@@ -39,11 +38,6 @@ export function MealSlots({
     [currentDateKey, mealPlan],
   );
   const mealPlanLoaded = mealPlan !== undefined;
-
-  const handleAddMeal = async (mealType: string, recipeId: Id<"recipes">) => {
-    await addMeal({ date: currentDateKey, mealType, recipeId, servings: 1 });
-    setAddingSlot(null);
-  };
 
   if (!mealPlanLoaded) {
     return (
@@ -57,7 +51,6 @@ export function MealSlots({
     <div className="space-y-3">
       {MEAL_TYPES.map((mealType) => {
         const meal = dayMeals.find((m) => m.mealType === mealType);
-        const isAdding = addingSlot === mealType;
 
         return (
           <Card key={mealType}>
@@ -126,45 +119,11 @@ export function MealSlots({
                   <span>F: {Math.round(meal.totalFat ?? 0)}g</span>
                 </div>
               </div>
-            ) : isAdding ? (
-              <div className="space-y-2">
-                {recipes.length === 0 ? (
-                  <p className="py-2 text-xs text-muted-foreground">
-                    No recipes yet. Create one in the Recipes tab.
-                  </p>
-                ) : (
-                  <div className="max-h-40 overflow-y-auto space-y-1">
-                    {recipes.map((recipe) => (
-                      <Button
-                        key={recipe._id}
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleAddMeal(mealType, recipe._id)}
-                        className="h-auto w-full justify-start px-3 py-2 text-left"
-                      >
-                        <span className="font-medium">{recipe.name}</span>
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {recipe.totalKcal} kcal
-                        </span>
-                      </Button>
-                    ))}
-                  </div>
-                )}
-                <Button
-                  type="button"
-                  onClick={() => setAddingSlot(null)}
-                  variant="ghost"
-                  size="sm"
-                  className="h-auto px-0 text-xs text-muted-foreground"
-                >
-                  Cancel
-                </Button>
-              </div>
             ) : (
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setAddingSlot(mealType)}
+                onClick={() => setSelectedMealType(mealType)}
                 className="w-full border-dashed text-muted-foreground hover:text-foreground"
               >
                 + Add recipe
@@ -174,6 +133,15 @@ export function MealSlots({
           </Card>
         );
       })}
+
+      <AddRecipeDialog
+        open={selectedMealType !== null}
+        date={currentDateKey}
+        mealType={selectedMealType}
+        onOpenChange={(open) => {
+          if (!open) setSelectedMealType(null);
+        }}
+      />
     </div>
   );
 }

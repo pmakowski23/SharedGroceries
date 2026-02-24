@@ -6,13 +6,17 @@ export function useRecipeGeneration() {
   const generateRecipe = useAction(api.recipes.generate);
   const [showGenerate, setShowGenerate] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
+  const [includeGoalsContext, setIncludeGoalsContext] = useState(false);
   const [generating, setGenerating] = useState(false);
 
   const handleGenerate = async () => {
     if (!aiPrompt.trim()) return;
     setGenerating(true);
     try {
-      await generateRecipe({ description: aiPrompt.trim() });
+      await generateRecipe({
+        description: aiPrompt.trim(),
+        includeGoalsContext,
+      });
       setAiPrompt("");
       setShowGenerate(false);
     } finally {
@@ -25,6 +29,8 @@ export function useRecipeGeneration() {
     setShowGenerate,
     aiPrompt,
     setAiPrompt,
+    includeGoalsContext,
+    setIncludeGoalsContext,
     generating,
     handleGenerate,
   };

@@ -7,6 +7,34 @@ import { Id } from "./_generated/dataModel";
 const model = "mistral-small-latest";
 const mealTagValues = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
 type MealTag = (typeof mealTagValues)[number];
+type OptionalSex = "male" | "female" | null;
+type OptionalActivityLevel =
+  | "sedentary"
+  | "light"
+  | "moderate"
+  | "active"
+  | "veryActive"
+  | null;
+type OptionalGoalDirection = "lose" | "maintain" | "gain" | null;
+
+type GoalsSettings = {
+  profile: {
+    age: number | null;
+    sex: OptionalSex;
+    heightCm: number | null;
+    weightKg: number | null;
+    bodyFatPct: number | null;
+    activityLevel: OptionalActivityLevel;
+    goalDirection: OptionalGoalDirection;
+  };
+  targets: {
+    kcal: number | null;
+    protein: number | null;
+    carbs: number | null;
+    fat: number | null;
+    macroTolerancePct: number;
+  };
+};
 
 function createMistralClient() {
   const apiKey = process.env.MISTRAL_API_KEY;
@@ -268,14 +296,47 @@ export const remove = mutation({
   },
 });
 
-const recipeGenerationPrompt = (description: string) => `
+function buildGoalsContext(settings: GoalsSettings): string {
+  const lines: Array<string> = [];
+  const { profile, targets } = settings;
+
+  if (profile.age !== null) lines.push(`- Age: ${profile.age}`);
+  if (profile.sex !== null) lines.push(`- Sex: ${profile.sex}`);
+  if (profile.heightCm !== null) lines.push(`- Height: ${profile.heightCm} cm`);
+  if (profile.weightKg !== null) lines.push(`- Weight: ${profile.weightKg} kg`);
+  if (profile.bodyFatPct !== null) lines.push(`- Body fat: ${profile.bodyFatPct}%`);
+  if (profile.activityLevel !== null)
+    lines.push(`- Activity level: ${profile.activityLevel}`);
+  if (profile.goalDirection !== null)
+    lines.push(`- Goal direction: ${profile.goalDirection}`);
+
+  if (targets.kcal !== null) lines.push(`- Daily target kcal: ${targets.kcal}`);
+  if (targets.protein !== null)
+    lines.push(`- Daily target protein: ${targets.protein} g`);
+  if (targets.carbs !== null) lines.push(`- Daily target carbs: ${targets.carbs} g`);
+  if (targets.fat !== null) lines.push(`- Daily target fat: ${targets.fat} g`);
+  lines.push(`- Macro tolerance: ${targets.macroTolerancePct}%`);
+
+  if (lines.length === 1) {
+    return `
+User nutrition goals context:
+- No nutrition goals are configured yet.`;
+  }
+
+  return `
+User nutrition goals context:
+${lines.join("\n")}`;
+}
+
+const recipeGenerationPrompt = (description: string, goalsContext: string) => `
 Generate a recipe based on this description: "${description}"
+${goalsContext}
 
 Return valid JSON with exactly this shape:
 {
   "name": "Recipe name",
   "description": "Short description",
-  "servings": 2,
+  "servings": 1,
   "mealTags": ["Dinner"],
   "instructions": ["Step 1", "Step 2"],
   "ingredients": [
@@ -292,6 +353,9 @@ Return valid JSON with exactly this shape:
 }
 
 Rules:
+- Treat the meal description as the user's primary preference.
+- If nutrition goals context is provided, treat it as user preferences/constraints and align ingredient choices and macros accordingly.
+- Always set "servings" to exactly 1.
 - All macro values (kcalPerUnit, proteinPerUnit, carbsPerUnit, fatPerUnit) are per 1 unit of the given unit (e.g. per 1g, per 1ml, per 1 piece).
 - Use sensible, real-world nutritional data.
 - Set mealTags using one or more from: Breakfast, Lunch, Dinner, Snack.
@@ -319,14 +383,26 @@ interface GeneratedRecipe {
 }
 
 export const generate = action({
-  args: { description: v.string() },
+  args: {
+    description: v.string(),
+    includeGoalsContext: v.optional(v.boolean()),
+  },
   returns: v.id("recipes"),
   handler: async (ctx, args): Promise<Id<"recipes">> => {
     const client = createMistralClient();
+    const goalsContext =
+      args.includeGoalsContext === true
+        ? buildGoalsContext(await ctx.runQuery(api.nutritionGoals.getSettings, {}))
+        : "";
 
     const response = await client.chat.complete({
       model,
-      messages: [{ role: "user", content: recipeGenerationPrompt(args.description) }],
+      messages: [
+        {
+          role: "user",
+          content: recipeGenerationPrompt(args.description, goalsContext),
+        },
+      ],
       temperature: 0.7,
       responseFormat: { type: "json_object" },
     });
@@ -352,7 +428,7 @@ export const generate = action({
     const recipeId: Id<"recipes"> = await ctx.runMutation(api.recipes.create, {
       name: parsed.name,
       description: parsed.description,
-      servings: parsed.servings,
+      servings: 1,
       mealTags: (() => {
         const aiMealTags = sanitizeMealTags(parsed.mealTags);
         return aiMealTags.length > 0

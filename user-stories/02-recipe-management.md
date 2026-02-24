@@ -14,6 +14,7 @@ Users can browse, create, and manage recipes. Each recipe has ingredients with p
 ## Features
 - List all saved recipes with search/filter.
 - View recipe detail: steps, ingredients, macros per serving.
+- View per-ingredient macros in recipe detail (kcal, protein, carbs, fat), scaled by selected servings.
 - Create recipe manually (name, steps, ingredients with macros).
 - Edit / delete existing recipes.
 - Add recipe ingredients directly to the grocery list (scaled by serving count).

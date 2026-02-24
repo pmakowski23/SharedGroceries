@@ -16,6 +16,8 @@ export function RecipesPage() {
     setShowGenerate,
     aiPrompt,
     setAiPrompt,
+    includeGoalsContext,
+    setIncludeGoalsContext,
     generating,
     handleGenerate,
   } = useRecipeGeneration();
@@ -44,6 +46,8 @@ export function RecipesPage() {
         showGenerate={showGenerate}
         aiPrompt={aiPrompt}
         setAiPrompt={setAiPrompt}
+        includeGoalsContext={includeGoalsContext}
+        setIncludeGoalsContext={setIncludeGoalsContext}
         generating={generating}
         onGenerate={() => void handleGenerate()}
       />
