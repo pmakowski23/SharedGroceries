@@ -3,7 +3,10 @@ import { addDays, formatDateKey, getWeekStart } from "../lib/date";
 
 export function useMealPlannerWeek() {
   const [weekOffset, setWeekOffset] = useState(0);
-  const [selectedDay, setSelectedDay] = useState(0);
+  const [selectedDay, setSelectedDay] = useState(() => {
+    const today = new Date().getDay();
+    return (today + 6) % 7;
+  });
 
   const weekStart = useMemo(() => {
     const now = new Date();

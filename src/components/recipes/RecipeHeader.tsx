@@ -1,23 +1,20 @@
 import { ArrowLeft } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { Button } from "../ui/button";
 
 type RecipeHeaderProps = {
   name: string;
   description?: string;
-  onBack: () => void;
 };
 
-export function RecipeHeader({ name, description, onBack }: RecipeHeaderProps) {
+export function RecipeHeader({ name, description }: RecipeHeaderProps) {
   return (
     <>
-      <Button
-        type="button"
-        onClick={onBack}
-        variant="ghost"
-        className="mb-3 -ml-3"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back
+      <Button type="button" variant="ghost" className="mb-3 -ml-3" asChild>
+        <Link to="/recipes">
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </Link>
       </Button>
 
       <h1 className="text-2xl font-bold">{name}</h1>
