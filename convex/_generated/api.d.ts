@@ -15,6 +15,7 @@ import type {
 } from "convex/server";
 import type * as groceries from "../groceries.js";
 import type * as http from "../http.js";
+import type * as lib_time from "../lib/time.js";
 import type * as mealPlans from "../mealPlans.js";
 import type * as nutritionGoals from "../nutritionGoals.js";
 import type * as prompts from "../prompts.js";
@@ -32,6 +33,7 @@ import type * as router from "../router.js";
 declare const fullApi: ApiFromModules<{
   groceries: typeof groceries;
   http: typeof http;
+  "lib/time": typeof lib_time;
   mealPlans: typeof mealPlans;
   nutritionGoals: typeof nutritionGoals;
   prompts: typeof prompts;

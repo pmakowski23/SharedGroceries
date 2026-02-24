@@ -1,21 +1,30 @@
-export function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
+import { Temporal } from "@js-temporal/polyfill";
+
+export type PlainDate = Temporal.PlainDate;
+
+export function todayPlainDate(): PlainDate {
+  return Temporal.Now.plainDateISO();
 }
 
-export function formatDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+export function nowEpochMs(): number {
+  return Temporal.Now.instant().epochMilliseconds;
 }
 
-export function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
+export function getWeekStart(date: PlainDate): PlainDate {
+  return date.subtract({ days: date.dayOfWeek - 1 });
+}
+
+export function formatDateKey(date: PlainDate): string {
+  return date.toString();
+}
+
+export function addDays(date: PlainDate, days: number): PlainDate {
+  return date.add({ days });
+}
+
+export function formatMonthDay(date: PlainDate): string {
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }

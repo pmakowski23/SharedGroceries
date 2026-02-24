@@ -72,6 +72,37 @@ export default tseslint.config(
       // Allow async functions without await
       // for consistency (esp. Convex `handler`s)
       "@typescript-eslint/require-await": "off",
+
+      // Enforce Temporal API usage over legacy Date APIs.
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "Date",
+          property: "now",
+          message: "Use Temporal.Now.instant().epochMilliseconds instead.",
+        },
+        {
+          object: "Date",
+          property: "parse",
+          message: "Use Temporal parsing and constructors instead of Date.parse.",
+        },
+        {
+          object: "Date",
+          property: "UTC",
+          message: "Use Temporal types instead of Date.UTC.",
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "NewExpression[callee.name='Date']",
+          message: "Use Temporal APIs instead of new Date().",
+        },
+        {
+          selector: "CallExpression[callee.name='Date']",
+          message: "Use Temporal APIs instead of Date() calls.",
+        },
+      ],
     },
   },
 );

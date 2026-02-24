@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { nowEpochMs } from "../lib/date";
 
 export function CategoryManager({
   storeId,
@@ -76,7 +77,7 @@ export function CategoryManager({
         color: args.color,
         order: categories.length,
         storeId,
-        _creationTime: Date.now(),
+        _creationTime: nowEpochMs(),
       });
     }
 
@@ -119,7 +120,7 @@ export function CategoryManager({
             color: "#6B7280",
             order: categories.length,
             storeId,
-            _creationTime: Date.now(),
+            _creationTime: nowEpochMs(),
           },
         ];
 

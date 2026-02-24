@@ -4,6 +4,7 @@ import { api } from "./_generated/api";
 import { groceryItemPrompt } from "./prompts";
 import { Id } from "./_generated/dataModel";
 import { Mistral } from "@mistralai/mistralai";
+import { nowEpochMs } from "./lib/time";
 
 const model = "mistral-small-latest";
 
@@ -158,7 +159,7 @@ export const initializeApp = mutation({
       const storeId = await ctx.db.insert("stores", {
         name: "Default Store",
         isDefault: true,
-        createdAt: Date.now(),
+        createdAt: nowEpochMs(),
       });
       defaultStore = await ctx.db.get(storeId);
       await createDefaultCategories(ctx, storeId);
@@ -213,7 +214,7 @@ export const createStore = mutation({
     const storeId = await ctx.db.insert("stores", {
       name: args.name,
       isDefault: false,
-      createdAt: Date.now(),
+      createdAt: nowEpochMs(),
     });
 
     // Create default categories for the new store
@@ -455,7 +456,7 @@ export const addGroceryItem = mutation({
       category: args.category,
       storeId: args.storeId,
       isCompleted: false,
-      addedAt: Date.now(),
+      addedAt: nowEpochMs(),
     });
   },
 });

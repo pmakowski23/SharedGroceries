@@ -1,10 +1,10 @@
-import { formatDateKey } from "../../lib/date";
+import { formatDateKey, todayPlainDate, type PlainDate } from "../../lib/date";
 import { Button } from "../ui/button";
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type DaySelectorProps = {
-  weekDates: Array<Date>;
+  weekDates: Array<PlainDate>;
   selectedDay: number;
   setSelectedDay: (index: number) => void;
   dayStatusByDate: Record<string, boolean>;
@@ -16,7 +16,7 @@ export function DaySelector({
   setSelectedDay,
   dayStatusByDate,
 }: DaySelectorProps) {
-  const todayKey = formatDateKey(new Date());
+  const todayKey = formatDateKey(todayPlainDate());
 
   return (
     <div className="flex gap-1 mb-4 overflow-x-auto">
@@ -40,7 +40,7 @@ export function DaySelector({
             }`}
           >
             <div className="text-xs">{DAY_LABELS[index]}</div>
-            <div className="text-sm font-semibold">{date.getDate()}</div>
+            <div className="text-sm font-semibold">{date.day}</div>
           </Button>
         );
       })}

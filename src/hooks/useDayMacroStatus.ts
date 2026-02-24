@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { formatDateKey } from "../lib/date";
+import { formatDateKey, type PlainDate } from "../lib/date";
 import { isWithinTolerance, type MacroTotals } from "../lib/nutrition";
 
 type MealPlanRow = {
@@ -29,7 +29,7 @@ function getTotalsForDate(mealPlan: Array<MealPlanRow>, dateKey: string): MacroT
 export function useDayMacroStatus<T extends MealPlanRow>(params: {
   mealPlan: Array<T> | undefined;
   currentDateKey: string;
-  weekDates: Array<Date>;
+  weekDates: Array<PlainDate>;
   targetMacros: TargetMacros;
   tolerancePct: number;
 }) {

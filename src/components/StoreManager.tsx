@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { nowEpochMs } from "../lib/date";
 
 export function StoreManager({
   currentStore,
@@ -38,10 +39,10 @@ export function StoreManager({
       ...stores,
       {
         _id: tempId,
-        _creationTime: Date.now(),
+        _creationTime: nowEpochMs(),
         name: args.name,
         isDefault: false,
-        createdAt: Date.now(),
+        createdAt: nowEpochMs(),
       },
     ];
     store.setQuery(api.groceries.getStores, {}, nextStores);

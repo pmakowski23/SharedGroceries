@@ -1,16 +1,20 @@
 import { useMemo, useState } from "react";
-import { addDays, formatDateKey, getWeekStart } from "../lib/date";
+import {
+  addDays,
+  formatDateKey,
+  formatMonthDay,
+  getWeekStart,
+  todayPlainDate,
+} from "../lib/date";
 
 export function useMealPlannerWeek() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedDay, setSelectedDay] = useState(() => {
-    const today = new Date().getDay();
-    return (today + 6) % 7;
+    return todayPlainDate().dayOfWeek - 1;
   });
 
   const weekStart = useMemo(() => {
-    const now = new Date();
-    const start = getWeekStart(now);
+    const start = getWeekStart(todayPlainDate());
     return addDays(start, weekOffset * 7);
   }, [weekOffset]);
 
@@ -23,13 +27,9 @@ export function useMealPlannerWeek() {
   const endDate = formatDateKey(weekDates[6]);
   const currentDateKey = formatDateKey(weekDates[selectedDay]);
 
-  const weekLabel = `${weekDates[0].toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  })} - ${weekDates[6].toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  })}`;
+  const weekLabel = `${formatMonthDay(weekDates[0])} - ${formatMonthDay(
+    weekDates[6],
+  )}`;
 
   return {
     weekOffset,
