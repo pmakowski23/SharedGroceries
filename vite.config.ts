@@ -16,17 +16,17 @@ export default defineConfig(({ mode }) => ({
         navigateFallbackDenylist: [/^\/convex\//],
       },
       manifest: {
-        name: "Shared Grocery List",
-        short_name: "Groceries",
-        description: "Collaborative grocery list app",
+        name: "Nourishly",
+        short_name: "Nourishly",
+        description: "Collaborative groceries and meal planning app",
         start_url: "/",
         scope: "/",
         display: "standalone",
-        theme_color: "#111827",
-        background_color: "#ffffff",
+        theme_color: "#F4F1EA",
+        background_color: "#F4F1EA",
         icons: [
           {
-            src: "/pwa.svg",
+            src: "/nourishly-favicons/logo.svg",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any maskable",

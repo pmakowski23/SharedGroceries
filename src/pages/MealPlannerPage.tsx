@@ -5,6 +5,7 @@ import { GenerateActions } from "../components/meal-planner/GenerateActions";
 import { MacroProgressCard } from "../components/meal-planner/MacroProgressCard";
 import { MealSlots } from "../components/meal-planner/MealSlots";
 import { WeekNavigator } from "../components/meal-planner/WeekNavigator";
+import { PageHeader } from "../components/PageHeader";
 import { useDayMacroStatus } from "../hooks/useDayMacroStatus";
 import { useMealPlannerWeek } from "../hooks/useMealPlannerWeek";
 
@@ -42,7 +43,7 @@ export function MealPlannerPage() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-6">
-      <h1 className="mb-4 text-2xl font-bold">Meal Planner</h1>
+      <PageHeader title="Meal Planner" />
       <WeekNavigator
         weekLabel={weekLabel}
         onPrevWeek={() => setWeekOffset(weekOffset - 1)}

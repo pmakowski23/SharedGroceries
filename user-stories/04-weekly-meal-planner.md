@@ -8,6 +8,7 @@ Users assign recipes to days of the week across meal slots or auto-generate a da
 - Each slot holds one recipe reference + serving count.
 - Navigation lets you move between weeks.
 - Each day can show a compliance status against kcal/protein/carbs/fat goals.
+- Header includes page title on the left and app logo on the top-right.
 
 ## Macro Display
 - Per meal: kcal, protein, carbs, fat (computed from recipe ingredients x servings).

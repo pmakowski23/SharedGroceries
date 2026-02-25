@@ -1,6 +1,7 @@
 import { CategoryListDnd } from "../components/CategoryListDnd";
 import { StoreManager } from "../components/StoreManager";
 import { AddItemForm } from "../components/AddItemForm";
+import { PageHeader } from "../components/PageHeader";
 import { Button } from "../components/ui/button";
 import { useGroceryListViewModel } from "../hooks/useGroceryListViewModel";
 
@@ -24,8 +25,11 @@ export function GroceryListPage() {
 
   return (
     <div className="max-w-md mx-auto px-4 py-6">
-      <div className="flex items-start justify-between mb-2">
-        <h1 className="text-2xl font-bold">Groceries</h1>
+      <PageHeader title="Groceries" />
+      <div className="mb-4 flex items-center justify-between">
+        <div className="text-sm text-muted-foreground">
+          Active list: <span className="font-medium">{groceryData.currentStore.name}</span>
+        </div>
         <div className="flex items-center gap-2">
           {groceryData.currentStore && hasCompleted && (
             <Button
@@ -61,10 +65,12 @@ export function GroceryListPage() {
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="sm"
             onClick={toggleStoreManager}
             title="List Settings"
+            className="gap-1.5"
           >
+            Settings
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
               <path
                 fillRule="evenodd"
@@ -75,11 +81,6 @@ export function GroceryListPage() {
           </Button>
         </div>
       </div>
-      {groceryData.currentStore && (
-        <div className="mb-4 text-sm text-muted-foreground">
-          Active list: <span className="font-medium">{groceryData.currentStore.name}</span>
-        </div>
-      )}
 
       {showStoreManager && (
         <StoreManager
