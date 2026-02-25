@@ -8,7 +8,7 @@ type AiDebugLogEntry = {
 
 const AI_DEBUG_ENDPOINT = "/__ai-debug-log";
 
-function truncate(value: string, max = 600): string {
+function truncate(value: string, max = 8000): string {
   return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 

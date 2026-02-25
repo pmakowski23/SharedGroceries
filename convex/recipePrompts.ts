@@ -46,8 +46,11 @@ export const recipeGenerationPrompt = (
   description: string,
   goalsContext: string,
   servings: number,
+  options?: {
+    strictPreserve?: boolean;
+  },
 ): string => `
-Generate a recipe based on this description: "${description}"
+${options?.strictPreserve === true ? "Convert this pasted recipe into structured JSON without losing information." : "Generate a recipe based on this description:"} "${description}"
 ${goalsContext}
 
 Return valid JSON with exactly this shape:
@@ -66,6 +69,13 @@ Rules:
 - Treat the meal description as the user's primary preference.
 - If nutrition goals context is provided, treat it as user preferences/constraints and align ingredient choices and macros accordingly.
 - Always set "servings" to exactly ${servings}.
+- ${options?.strictPreserve === true ? "Strict preserve mode is enabled. Keep all ingredients and all cooking phases from the source recipe." : "When information is missing, infer realistic details that match the user's request."}
+- ${options?.strictPreserve === true ? "Do NOT summarize or collapse source steps. Keep distinct procedural steps, including assembly and sub-recipes." : "Keep steps concise and practical."}
+- ${options?.strictPreserve === true ? 'Keep sub-recipe sections (for example sauce components) by flattening them into the single "ingredients" array.' : "Use a single flat ingredient list."}
+- ${options?.strictPreserve === true ? 'For lines like "salt to taste" or "pepper to taste", include them with small estimated amounts and sensible macros.' : 'If ingredient amounts are vague, pick reasonable estimates.'}
+- For oils listed for frying, count ONLY the oil absorbed by the food in ingredient amounts/macros.
+- Assume 5% of total frying oil is absorbed unless absorbed oil amount is explicitly stated.
+- Do NOT count full pan/deep-fry oil volume in nutrition totals (nobody consumes all frying oil used in cooking).
 - For unit "g" or "ml", return ONLY per-100 fields:
   - kcalPer100, proteinPer100, carbsPer100, fatPer100
 - For non g/ml units (piece, tbsp, tsp, cup, clove, etc.), return ONLY per-unit fields:
@@ -80,6 +90,33 @@ Rules:
 - Set mealTags using one or more from: Breakfast, Lunch, Dinner, Snack.
 - Include at least 3 ingredients and 3 steps.
 - Return ONLY valid JSON, no markdown fences.
+`;
+
+export const recipeRegenerationPromptForMissingItems = (
+  originalPrompt: string,
+  firstAttemptResponseText: string,
+  missingIngredients: Array<string>,
+  missingStepTokens: Array<string>,
+): string => `
+You returned incomplete JSON for a recipe import. Retry and return complete JSON.
+
+Original user recipe text:
+"""${originalPrompt}"""
+
+Your previous JSON response:
+"""${firstAttemptResponseText}"""
+
+Missing elements that MUST be represented:
+- Missing ingredient tokens: ${missingIngredients.length > 0 ? missingIngredients.join(", ") : "none"}
+- Missing instruction tokens/phases: ${missingStepTokens.length > 0 ? missingStepTokens.join(", ") : "none"}
+
+Return valid JSON with the same schema as before.
+
+Critical rules:
+- Preserve all meaningful ingredients and procedural phases from the original source.
+- Include "to taste" seasoning lines with small estimated amounts/macros.
+- Keep assembly/finalization instructions when present.
+- Do not include markdown fences.
 `;
 
 export const ingredientMacroRegenerationPrompt = (

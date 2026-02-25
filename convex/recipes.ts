@@ -6,6 +6,7 @@ import { Id } from "./_generated/dataModel";
 import {
   ingredientMacroRegenerationPrompt,
   recipeGenerationPrompt,
+  recipeRegenerationPromptForMissingItems,
 } from "./recipePrompts";
 import { normalizeAndScaleIngredientMacros } from "./lib/recipeMacroNormalization";
 import {
@@ -14,6 +15,10 @@ import {
   normalizeIngredientMacroShape,
   normalizeUnitShortName,
 } from "./lib/ingredientNutrition";
+import {
+  detectStructuredRecipeInput,
+  evaluateRecipeImportCompleteness,
+} from "./lib/recipeImportValidation";
 
 const model = "mistral-small-latest";
 const mealTagValues = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
@@ -726,6 +731,27 @@ interface GeneratedRecipe {
   ingredients: GeneratedIngredient[];
 }
 
+async function requestRecipeJsonFromModel(
+  client: Mistral,
+  prompt: string,
+): Promise<{ text: string; parsed: GeneratedRecipe }> {
+  const response = await client.chat.complete({
+    model,
+    messages: [
+      {
+        role: "user",
+        content: prompt,
+      },
+    ],
+    temperature: 0.7,
+    responseFormat: { type: "json_object" },
+  });
+
+  const text = extractTextFromMessageContent(response.choices?.[0]?.message?.content);
+  const parsed = JSON.parse(text.trim()) as GeneratedRecipe;
+  return { text, parsed };
+}
+
 export const generate = action({
   args: {
     description: v.string(),
@@ -757,29 +783,45 @@ export const generate = action({
             await ctx.runQuery(api.nutritionGoals.getSettings, {}),
           )
         : "";
+    const strictPreserveMode = detectStructuredRecipeInput(args.description);
     const prompt = recipeGenerationPrompt(
       args.description,
       goalsContext,
       selectedServings,
+      { strictPreserve: strictPreserveMode },
     );
-    const response = await client.chat.complete({
-      model,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      temperature: 0.7,
-      responseFormat: { type: "json_object" },
-    });
-
-    const text = extractTextFromMessageContent(
-      response.choices?.[0]?.message?.content,
-    );
-    const trimmedText = text.trim();
-
-    const parsed = JSON.parse(trimmedText) as GeneratedRecipe;
+    const firstAttempt = await requestRecipeJsonFromModel(client, prompt);
+    let text = firstAttempt.text;
+    let parsed = firstAttempt.parsed;
+    if (strictPreserveMode) {
+      const completeness = evaluateRecipeImportCompleteness(args.description, parsed);
+      if (
+        completeness.missingIngredients.length > 0 ||
+        completeness.missingStepTokens.length > 0
+      ) {
+        const repairPrompt = recipeRegenerationPromptForMissingItems(
+          args.description,
+          text,
+          completeness.missingIngredients,
+          completeness.missingStepTokens,
+        );
+        const secondAttempt = await requestRecipeJsonFromModel(client, repairPrompt);
+        const retryCompleteness = evaluateRecipeImportCompleteness(
+          args.description,
+          secondAttempt.parsed,
+        );
+        if (
+          retryCompleteness.missingIngredients.length > 0 ||
+          retryCompleteness.missingStepTokens.length > 0
+        ) {
+          throw new Error(
+            `Recipe import is incomplete after retry. Missing ingredients: ${retryCompleteness.missingIngredients.join(", ") || "none"}. Missing steps/phases: ${retryCompleteness.missingStepTokens.join(", ") || "none"}.`,
+          );
+        }
+        text = secondAttempt.text;
+        parsed = secondAttempt.parsed;
+      }
+    }
     const normalizedIngredients = parsed.ingredients.map((ing) =>
       normalizeAndScaleIngredientMacros(toIngredientInputFromGenerated(ing)),
     );
