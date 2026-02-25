@@ -526,8 +526,29 @@ export const reorderCategories = mutation({
 export const categorizeItem = action({
   args: {
     itemName: v.string(),
+    debug: v.optional(v.boolean()),
   },
-  handler: async (ctx, args): Promise<string> => {
+  returns: v.union(
+    v.string(),
+    v.object({
+      category: v.string(),
+      prompt: v.string(),
+      responseText: v.optional(v.string()),
+      error: v.optional(v.string()),
+    }),
+  ),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    | string
+    | {
+        category: string;
+        prompt: string;
+        responseText?: string;
+        error?: string;
+      }
+  > => {
     // Initialize app if needed
     await ctx.runMutation(api.groceries.initializeApp, {});
 
@@ -559,6 +580,9 @@ export const categorizeItem = action({
         temperature: 0.1,
         responseFormat,
       });
+      const responseText = extractTextFromMessageContent(
+        response.choices[0]?.message?.content,
+      );
 
       const category: string =
         extractCategoryFromStructuredResponse(
@@ -575,16 +599,35 @@ export const categorizeItem = action({
         storeId: currentStore._id,
       });
 
+      if (args.debug === true) {
+        return {
+          category,
+          prompt,
+          responseText,
+        };
+      }
       return category;
     } catch (error) {
       console.error("AI categorization failed:", error);
       // Fallback to first category or "Uncategorized"
       const fallbackCategory: string = categories[0] || "Uncategorized";
+      const prompt = groceryItemPrompt(
+        currentStore.name,
+        allowedCategories,
+        args.itemName,
+      );
       await ctx.runMutation(api.groceries.addGroceryItem, {
         name: args.itemName,
         category: fallbackCategory,
         storeId: currentStore._id,
       });
+      if (args.debug === true) {
+        return {
+          category: fallbackCategory,
+          prompt,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
       return fallbackCategory;
     }
   },

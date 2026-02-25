@@ -1,0 +1,11 @@
+---
+description: Enforce pnpm for all package tasks
+alwaysApply: true
+---
+
+# Package Manager
+
+- Always use `pnpm` for dependency management and scripts.
+- Use `pnpm add` / `pnpm add -D` instead of `npm install`.
+- Use `pnpm run <script>` (or `pnpm <script>` when appropriate) instead of `npm run`.
+- Do not use `npm`, `yarn`, or `bun` commands unless explicitly requested by the user.

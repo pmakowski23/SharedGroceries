@@ -5,6 +5,7 @@ import { useForm } from "@tanstack/react-form";
 import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
 import { Input } from "./ui/input";
+import { logAiDebug } from "@/lib/aiDebugLogger";
 
 export function AddItemForm() {
   const categorizeItem = useAction(api.groceries.categorizeItem);
@@ -17,9 +18,33 @@ export function AddItemForm() {
     onSubmit: async ({ value }) => {
       if (!value.itemName.trim()) return;
       setIsAdding(true);
+      const startedAt = performance.now();
+      const itemName = value.itemName.trim();
       try {
-        await categorizeItem({ itemName: value.itemName.trim() });
+        const result = await categorizeItem({
+          itemName,
+          debug: import.meta.env.DEV,
+        });
+        const debugResult =
+          typeof result === "object" && result !== null && "prompt" in result ? result : null;
+        await logAiDebug({
+          action: "groceries.categorizeItem",
+          input: debugResult?.prompt ?? { itemName },
+          output:
+            debugResult?.responseText ??
+            (typeof result === "string" ? { category: result } : "Item categorized successfully"),
+          error: debugResult?.error,
+          durationMs: Math.round(performance.now() - startedAt),
+        });
         form.reset();
+      } catch (error) {
+        await logAiDebug({
+          action: "groceries.categorizeItem",
+          input: { itemName },
+          error: error instanceof Error ? error.message : String(error),
+          durationMs: Math.round(performance.now() - startedAt),
+        });
+        throw error;
       } finally {
         setIsAdding(false);
       }

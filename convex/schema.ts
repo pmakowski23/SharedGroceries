@@ -75,16 +75,30 @@ const applicationTables = {
     ),
   }).searchIndex("search_name", { searchField: "name" }),
 
-  recipeIngredients: defineTable({
-    recipeId: v.id("recipes"),
-    name: v.string(),
-    amount: v.number(),
-    unit: v.string(),
-    kcalPerUnit: v.number(),
-    proteinPerUnit: v.number(),
-    carbsPerUnit: v.number(),
-    fatPerUnit: v.number(),
-  }).index("by_recipeId", ["recipeId"]),
+  recipeIngredients: defineTable(
+    v.union(
+      v.object({
+        recipeId: v.id("recipes"),
+        name: v.string(),
+        amount: v.number(),
+        unit: v.string(),
+        kcalPer100: v.number(),
+        proteinPer100: v.number(),
+        carbsPer100: v.number(),
+        fatPer100: v.number(),
+      }),
+      v.object({
+        recipeId: v.id("recipes"),
+        name: v.string(),
+        amount: v.number(),
+        unit: v.string(),
+        kcalPerUnit: v.number(),
+        proteinPerUnit: v.number(),
+        carbsPerUnit: v.number(),
+        fatPerUnit: v.number(),
+      }),
+    ),
+  ).index("by_recipeId", ["recipeId"]),
 
   mealPlans: defineTable({
     date: v.string(),

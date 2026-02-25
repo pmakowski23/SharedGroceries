@@ -3,6 +3,17 @@ import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { Mistral } from "@mistralai/mistralai";
 import { Id } from "./_generated/dataModel";
+import {
+  ingredientMacroRegenerationPrompt,
+  recipeGenerationPrompt,
+} from "./recipePrompts";
+import { normalizeAndScaleIngredientMacros } from "./lib/recipeMacroNormalization";
+import {
+  isGramOrMilliliterUnit,
+  ingredientMacrosForAmount,
+  normalizeIngredientMacroShape,
+  normalizeUnitShortName,
+} from "./lib/ingredientNutrition";
 
 const model = "mistral-small-latest";
 const mealTagValues = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
@@ -36,12 +47,335 @@ type GoalsSettings = {
   };
 };
 
+type MassVolumeIngredientDocument = {
+  _id: Id<"recipeIngredients">;
+  _creationTime: number;
+  recipeId: Id<"recipes">;
+  name: string;
+  amount: number;
+  unit: string;
+  kcalPer100: number;
+  proteinPer100: number;
+  carbsPer100: number;
+  fatPer100: number;
+};
+
+type PerUnitIngredientDocument = {
+  _id: Id<"recipeIngredients">;
+  _creationTime: number;
+  recipeId: Id<"recipes">;
+  name: string;
+  amount: number;
+  unit: string;
+  kcalPerUnit: number;
+  proteinPerUnit: number;
+  carbsPerUnit: number;
+  fatPerUnit: number;
+};
+
+type IngredientDocument =
+  | MassVolumeIngredientDocument
+  | PerUnitIngredientDocument;
+
+type IngredientInput = {
+  name: string;
+  amount: number;
+  unit: string;
+} & (
+  | {
+      kcalPer100: number;
+      proteinPer100: number;
+      carbsPer100: number;
+      fatPer100: number;
+    }
+  | {
+      kcalPerUnit: number;
+      proteinPerUnit: number;
+      carbsPerUnit: number;
+      fatPerUnit: number;
+    }
+);
+
+type IngredientMacroUpdate =
+  | {
+      kcalPer100: number;
+      proteinPer100: number;
+      carbsPer100: number;
+      fatPer100: number;
+    }
+  | {
+      kcalPerUnit: number;
+      proteinPerUnit: number;
+      carbsPerUnit: number;
+      fatPerUnit: number;
+    };
+
+const mealTagValidator = v.union(
+  v.literal("Breakfast"),
+  v.literal("Lunch"),
+  v.literal("Dinner"),
+  v.literal("Snack"),
+);
+
+const ingredientMassMacroFields = {
+  kcalPer100: v.number(),
+  proteinPer100: v.number(),
+  carbsPer100: v.number(),
+  fatPer100: v.number(),
+} as const;
+
+const ingredientPerUnitMacroFields = {
+  kcalPerUnit: v.number(),
+  proteinPerUnit: v.number(),
+  carbsPerUnit: v.number(),
+  fatPerUnit: v.number(),
+} as const;
+
+const ingredientInputValidator = v.union(
+  v.object({
+    name: v.string(),
+    amount: v.number(),
+    unit: v.string(),
+    ...ingredientMassMacroFields,
+  }),
+  v.object({
+    name: v.string(),
+    amount: v.number(),
+    unit: v.string(),
+    ...ingredientPerUnitMacroFields,
+  }),
+);
+
+const ingredientMacroUpdateValidator = v.union(
+  v.object({
+    ...ingredientMassMacroFields,
+  }),
+  v.object({
+    ...ingredientPerUnitMacroFields,
+  }),
+);
+
+const ingredientDocumentValidator = v.union(
+  v.object({
+    _id: v.id("recipeIngredients"),
+    _creationTime: v.number(),
+    recipeId: v.id("recipes"),
+    name: v.string(),
+    amount: v.number(),
+    unit: v.string(),
+    ...ingredientMassMacroFields,
+  }),
+  v.object({
+    _id: v.id("recipeIngredients"),
+    _creationTime: v.number(),
+    recipeId: v.id("recipes"),
+    name: v.string(),
+    amount: v.number(),
+    unit: v.string(),
+    ...ingredientPerUnitMacroFields,
+  }),
+);
+
+function toMacroUpdate(input: IngredientInput): IngredientMacroUpdate {
+  if ("kcalPer100" in input) {
+    return {
+      kcalPer100: input.kcalPer100,
+      proteinPer100: input.proteinPer100,
+      carbsPer100: input.carbsPer100,
+      fatPer100: input.fatPer100,
+    };
+  }
+  return {
+    kcalPerUnit: input.kcalPerUnit,
+    proteinPerUnit: input.proteinPerUnit,
+    carbsPerUnit: input.carbsPerUnit,
+    fatPerUnit: input.fatPerUnit,
+  };
+}
+
+function toMacroUpdateFromNormalized(
+  normalized: ReturnType<typeof normalizeAndScaleIngredientMacros>,
+): IngredientMacroUpdate {
+  if ("kcalPer100" in normalized) {
+    return {
+      kcalPer100: normalized.kcalPer100,
+      proteinPer100: normalized.proteinPer100,
+      carbsPer100: normalized.carbsPer100,
+      fatPer100: normalized.fatPer100,
+    };
+  }
+  return {
+    kcalPerUnit: normalized.kcalPerUnit,
+    proteinPerUnit: normalized.proteinPerUnit,
+    carbsPerUnit: normalized.carbsPerUnit,
+    fatPerUnit: normalized.fatPerUnit,
+  };
+}
+
+function normalizeIngredientInput(
+  ingredient: IngredientInput,
+): IngredientInput {
+  const normalized = normalizeIngredientMacroShape(ingredient);
+  if ("kcalPer100" in normalized) {
+    return {
+      name: ingredient.name,
+      amount: ingredient.amount,
+      unit: normalized.unit,
+      kcalPer100: normalized.kcalPer100,
+      proteinPer100: normalized.proteinPer100,
+      carbsPer100: normalized.carbsPer100,
+      fatPer100: normalized.fatPer100,
+    };
+  }
+  return {
+    name: ingredient.name,
+    amount: ingredient.amount,
+    unit: normalized.unit,
+    kcalPerUnit: normalized.kcalPerUnit,
+    proteinPerUnit: normalized.proteinPerUnit,
+    carbsPerUnit: normalized.carbsPerUnit,
+    fatPerUnit: normalized.fatPerUnit,
+  };
+}
+
+type GeneratedIngredientRaw = {
+  name: string;
+  amount: number;
+  unit: string;
+  kcalPer100?: number;
+  proteinPer100?: number;
+  carbsPer100?: number;
+  fatPer100?: number;
+  kcalPerUnit?: number;
+  proteinPerUnit?: number;
+  carbsPerUnit?: number;
+  fatPerUnit?: number;
+};
+
+function hasPer100Macros(
+  ingredient: GeneratedIngredientRaw,
+): ingredient is GeneratedIngredientRaw & {
+  kcalPer100: number;
+  proteinPer100: number;
+  carbsPer100: number;
+  fatPer100: number;
+} {
+  return (
+    typeof ingredient.kcalPer100 === "number" &&
+    typeof ingredient.proteinPer100 === "number" &&
+    typeof ingredient.carbsPer100 === "number" &&
+    typeof ingredient.fatPer100 === "number"
+  );
+}
+
+function hasPerUnitMacros(
+  ingredient: GeneratedIngredientRaw,
+): ingredient is GeneratedIngredientRaw & {
+  kcalPerUnit: number;
+  proteinPerUnit: number;
+  carbsPerUnit: number;
+  fatPerUnit: number;
+} {
+  return (
+    typeof ingredient.kcalPerUnit === "number" &&
+    typeof ingredient.proteinPerUnit === "number" &&
+    typeof ingredient.carbsPerUnit === "number" &&
+    typeof ingredient.fatPerUnit === "number"
+  );
+}
+
+function toIngredientInputFromGenerated(
+  ingredient: GeneratedIngredientRaw,
+): IngredientInput {
+  if (hasPer100Macros(ingredient)) {
+    return {
+      name: ingredient.name,
+      amount: ingredient.amount,
+      unit: ingredient.unit,
+      kcalPer100: ingredient.kcalPer100,
+      proteinPer100: ingredient.proteinPer100,
+      carbsPer100: ingredient.carbsPer100,
+      fatPer100: ingredient.fatPer100,
+    };
+  }
+
+  if (hasPerUnitMacros(ingredient)) {
+    return {
+      name: ingredient.name,
+      amount: ingredient.amount,
+      unit: ingredient.unit,
+      kcalPerUnit: ingredient.kcalPerUnit,
+      proteinPerUnit: ingredient.proteinPerUnit,
+      carbsPerUnit: ingredient.carbsPerUnit,
+      fatPerUnit: ingredient.fatPerUnit,
+    };
+  }
+
+  throw new Error(
+    `Ingredient "${ingredient.name}" is missing a complete macro set in AI response`,
+  );
+}
+
+function normalizeIngredientDocument(
+  ingredient: IngredientDocument,
+): IngredientDocument {
+  const normalized = normalizeIngredientMacroShape(ingredient);
+  if ("kcalPer100" in normalized) {
+    return {
+      _id: ingredient._id,
+      _creationTime: ingredient._creationTime,
+      recipeId: ingredient.recipeId,
+      name: ingredient.name,
+      amount: ingredient.amount,
+      unit: normalized.unit,
+      kcalPer100: normalized.kcalPer100,
+      proteinPer100: normalized.proteinPer100,
+      carbsPer100: normalized.carbsPer100,
+      fatPer100: normalized.fatPer100,
+    };
+  }
+  return {
+    _id: ingredient._id,
+    _creationTime: ingredient._creationTime,
+    recipeId: ingredient.recipeId,
+    name: ingredient.name,
+    amount: ingredient.amount,
+    unit: normalized.unit,
+    kcalPerUnit: normalized.kcalPerUnit,
+    proteinPerUnit: normalized.proteinPerUnit,
+    carbsPerUnit: normalized.carbsPerUnit,
+    fatPerUnit: normalized.fatPerUnit,
+  };
+}
+
 function createMistralClient() {
   const apiKey = process.env.MISTRAL_API_KEY;
   if (!apiKey) {
     throw new Error("MISTRAL_API_KEY is not set");
   }
   return new Mistral({ apiKey });
+}
+
+function extractTextFromMessageContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .filter(
+      (chunk): chunk is { type: "text"; text: string } =>
+        typeof chunk === "object" &&
+        chunk !== null &&
+        (chunk as { type?: unknown }).type === "text" &&
+        typeof (chunk as { text?: unknown }).text === "string",
+    )
+    .map((chunk) => chunk.text)
+    .join(" ")
+    .trim();
 }
 
 function isMealTag(value: string): value is MealTag {
@@ -115,22 +449,16 @@ export const list = query({
       description: v.string(),
       servings: v.number(),
       instructions: v.array(v.string()),
-      mealTags: v.array(
-        v.union(
-          v.literal("Breakfast"),
-          v.literal("Lunch"),
-          v.literal("Dinner"),
-          v.literal("Snack")
-        )
-      ),
+      mealTags: v.array(mealTagValidator),
       totalKcal: v.number(),
-    })
+    }),
   ),
   handler: async (ctx) => {
     const recipes = await ctx.db.query("recipes").order("desc").collect();
     const result = [];
     for (const recipe of recipes) {
-      const persistedMealTags = (recipe as { mealTags?: Array<string> }).mealTags;
+      const persistedMealTags = (recipe as { mealTags?: Array<string> })
+        .mealTags;
       const normalizedMealTags = sanitizeMealTags(persistedMealTags);
       const mealTags =
         normalizedMealTags.length > 0
@@ -141,8 +469,10 @@ export const list = query({
         .withIndex("by_recipeId", (q) => q.eq("recipeId", recipe._id))
         .collect();
       const totalKcal = ingredients.reduce(
-        (sum, ing) => sum + ing.kcalPerUnit * ing.amount,
-        0
+        (sum, ing) =>
+          sum +
+          ingredientMacrosForAmount(normalizeIngredientDocument(ing)).kcal,
+        0,
       );
       result.push({ ...recipe, mealTags, totalKcal: Math.round(totalKcal) });
     }
@@ -160,16 +490,9 @@ export const get = query({
       description: v.string(),
       servings: v.number(),
       instructions: v.array(v.string()),
-      mealTags: v.array(
-        v.union(
-          v.literal("Breakfast"),
-          v.literal("Lunch"),
-          v.literal("Dinner"),
-          v.literal("Snack")
-        )
-      ),
+      mealTags: v.array(mealTagValidator),
     }),
-    v.null()
+    v.null(),
   ),
   handler: async (ctx, args) => {
     const recipe = await ctx.db.get(args.recipeId);
@@ -188,25 +511,27 @@ export const get = query({
 
 export const getIngredients = query({
   args: { recipeId: v.id("recipes") },
-  returns: v.array(
-    v.object({
-      _id: v.id("recipeIngredients"),
-      _creationTime: v.number(),
-      recipeId: v.id("recipes"),
-      name: v.string(),
-      amount: v.number(),
-      unit: v.string(),
-      kcalPerUnit: v.number(),
-      proteinPerUnit: v.number(),
-      carbsPerUnit: v.number(),
-      fatPerUnit: v.number(),
-    })
-  ),
+  returns: v.array(ingredientDocumentValidator),
   handler: async (ctx, args) => {
-    return await ctx.db
+    const ingredients = await ctx.db
       .query("recipeIngredients")
       .withIndex("by_recipeId", (q) => q.eq("recipeId", args.recipeId))
       .collect();
+    return ingredients.map((ingredient) =>
+      normalizeIngredientDocument(ingredient as IngredientDocument),
+    );
+  },
+});
+
+export const getIngredient = query({
+  args: { ingredientId: v.id("recipeIngredients") },
+  returns: v.union(ingredientDocumentValidator, v.null()),
+  handler: async (ctx, args) => {
+    const ingredient = await ctx.db.get(args.ingredientId);
+    if (!ingredient) {
+      return null;
+    }
+    return normalizeIngredientDocument(ingredient as IngredientDocument);
   },
 });
 
@@ -216,27 +541,8 @@ export const create = mutation({
     description: v.string(),
     servings: v.number(),
     instructions: v.array(v.string()),
-    mealTags: v.optional(
-      v.array(
-        v.union(
-          v.literal("Breakfast"),
-          v.literal("Lunch"),
-          v.literal("Dinner"),
-          v.literal("Snack")
-        )
-      )
-    ),
-    ingredients: v.array(
-      v.object({
-        name: v.string(),
-        amount: v.number(),
-        unit: v.string(),
-        kcalPerUnit: v.number(),
-        proteinPerUnit: v.number(),
-        carbsPerUnit: v.number(),
-        fatPerUnit: v.number(),
-      })
-    ),
+    mealTags: v.optional(v.array(mealTagValidator)),
+    ingredients: v.array(ingredientInputValidator),
   },
   returns: v.id("recipes"),
   handler: async (ctx, args) => {
@@ -252,9 +558,13 @@ export const create = mutation({
       mealTags,
     });
     for (const ing of args.ingredients) {
+      const normalized = normalizeIngredientInput(ing);
       await ctx.db.insert("recipeIngredients", {
         recipeId,
-        ...ing,
+        name: normalized.name,
+        amount: normalized.amount,
+        unit: normalizeUnitShortName(normalized.unit),
+        ...toMacroUpdate(normalized),
       });
     }
     return recipeId;
@@ -264,19 +574,94 @@ export const create = mutation({
 export const updateMealTags = mutation({
   args: {
     recipeId: v.id("recipes"),
-    mealTags: v.array(
-      v.union(
-        v.literal("Breakfast"),
-        v.literal("Lunch"),
-        v.literal("Dinner"),
-        v.literal("Snack")
-      )
-    ),
+    mealTags: v.array(mealTagValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.recipeId, { mealTags: sanitizeMealTags(args.mealTags) });
+    await ctx.db.patch(args.recipeId, {
+      mealTags: sanitizeMealTags(args.mealTags),
+    });
     return null;
+  },
+});
+
+export const updateIngredientMacros = mutation({
+  args: {
+    ingredientId: v.id("recipeIngredients"),
+    macros: ingredientMacroUpdateValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.get(args.ingredientId);
+    if (!existing) {
+      throw new Error("Ingredient not found");
+    }
+    const normalizedExisting = normalizeIngredientDocument(
+      existing as IngredientDocument,
+    );
+    const unit = normalizeUnitShortName(normalizedExisting.unit);
+    const isMassVolume = isGramOrMilliliterUnit(unit);
+    const providedMassMacros = "kcalPer100" in args.macros;
+
+    if (isMassVolume !== providedMassMacros) {
+      throw new Error(
+        isMassVolume
+          ? `Unit "${unit}" requires per-100 macros only`
+          : `Unit "${unit}" requires per-unit macros only`,
+      );
+    }
+
+    await ctx.db.replace(args.ingredientId, {
+      recipeId: normalizedExisting.recipeId,
+      name: normalizedExisting.name,
+      amount: normalizedExisting.amount,
+      unit,
+      ...args.macros,
+    });
+    return null;
+  },
+});
+
+export const updateIngredientAmount = mutation({
+  args: {
+    ingredientId: v.id("recipeIngredients"),
+    amount: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (!Number.isFinite(args.amount) || args.amount <= 0) {
+      throw new Error("Amount must be a positive number");
+    }
+    await ctx.db.patch(args.ingredientId, {
+      amount: args.amount,
+    });
+    return null;
+  },
+});
+
+export const migrateIngredientMacrosToPer100 = action({
+  args: {},
+  returns: v.object({
+    updatedIngredients: v.number(),
+  }),
+  handler: async (ctx) => {
+    const recipes = await ctx.runQuery(api.recipes.list, {});
+    let updatedIngredients = 0;
+
+    for (const recipe of recipes) {
+      const ingredients = await ctx.runQuery(api.recipes.getIngredients, {
+        recipeId: recipe._id,
+      });
+      for (const ingredient of ingredients) {
+        await ctx.runMutation(api.recipes.updateIngredientMacros, {
+          ingredientId: ingredient._id,
+          macros: toMacroUpdate(ingredient),
+        });
+        updatedIngredients += 1;
+      }
+    }
+
+    return { updatedIngredients };
   },
 });
 
@@ -304,7 +689,8 @@ function buildGoalsContext(settings: GoalsSettings): string {
   if (profile.sex !== null) lines.push(`- Sex: ${profile.sex}`);
   if (profile.heightCm !== null) lines.push(`- Height: ${profile.heightCm} cm`);
   if (profile.weightKg !== null) lines.push(`- Weight: ${profile.weightKg} kg`);
-  if (profile.bodyFatPct !== null) lines.push(`- Body fat: ${profile.bodyFatPct}%`);
+  if (profile.bodyFatPct !== null)
+    lines.push(`- Body fat: ${profile.bodyFatPct}%`);
   if (profile.activityLevel !== null)
     lines.push(`- Activity level: ${profile.activityLevel}`);
   if (profile.goalDirection !== null)
@@ -313,7 +699,8 @@ function buildGoalsContext(settings: GoalsSettings): string {
   if (targets.kcal !== null) lines.push(`- Daily target kcal: ${targets.kcal}`);
   if (targets.protein !== null)
     lines.push(`- Daily target protein: ${targets.protein} g`);
-  if (targets.carbs !== null) lines.push(`- Daily target carbs: ${targets.carbs} g`);
+  if (targets.carbs !== null)
+    lines.push(`- Daily target carbs: ${targets.carbs} g`);
   if (targets.fat !== null) lines.push(`- Daily target fat: ${targets.fat} g`);
   lines.push(`- Macro tolerance: ${targets.macroTolerancePct}%`);
 
@@ -328,50 +715,7 @@ User nutrition goals context:
 ${lines.join("\n")}`;
 }
 
-const recipeGenerationPrompt = (description: string, goalsContext: string) => `
-Generate a recipe based on this description: "${description}"
-${goalsContext}
-
-Return valid JSON with exactly this shape:
-{
-  "name": "Recipe name",
-  "description": "Short description",
-  "servings": 1,
-  "mealTags": ["Dinner"],
-  "instructions": ["Step 1", "Step 2"],
-  "ingredients": [
-    {
-      "name": "ingredient name",
-      "amount": 200,
-      "unit": "g",
-      "kcalPerUnit": 1.65,
-      "proteinPerUnit": 0.31,
-      "carbsPerUnit": 0.0,
-      "fatPerUnit": 0.036
-    }
-  ]
-}
-
-Rules:
-- Treat the meal description as the user's primary preference.
-- If nutrition goals context is provided, treat it as user preferences/constraints and align ingredient choices and macros accordingly.
-- Always set "servings" to exactly 1.
-- All macro values (kcalPerUnit, proteinPerUnit, carbsPerUnit, fatPerUnit) are per 1 unit of the given unit (e.g. per 1g, per 1ml, per 1 piece).
-- Use sensible, real-world nutritional data.
-- Set mealTags using one or more from: Breakfast, Lunch, Dinner, Snack.
-- Include at least 3 ingredients and 3 steps.
-- Return ONLY valid JSON, no markdown fences.
-`;
-
-interface GeneratedIngredient {
-  name: string;
-  amount: number;
-  unit: string;
-  kcalPerUnit: number;
-  proteinPerUnit: number;
-  carbsPerUnit: number;
-  fatPerUnit: number;
-}
+type GeneratedIngredient = GeneratedIngredientRaw;
 
 interface GeneratedRecipe {
   name: string;
@@ -385,50 +729,78 @@ interface GeneratedRecipe {
 export const generate = action({
   args: {
     description: v.string(),
+    servings: v.number(),
     includeGoalsContext: v.optional(v.boolean()),
+    debug: v.optional(v.boolean()),
   },
-  returns: v.id("recipes"),
-  handler: async (ctx, args): Promise<Id<"recipes">> => {
+  returns: v.union(
+    v.id("recipes"),
+    v.object({
+      recipeId: v.id("recipes"),
+      prompt: v.string(),
+      responseText: v.string(),
+    }),
+  ),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    | Id<"recipes">
+    | { recipeId: Id<"recipes">; prompt: string; responseText: string }
+  > => {
+    const selectedServings = Math.max(1, Math.round(args.servings));
     const client = createMistralClient();
+
     const goalsContext =
       args.includeGoalsContext === true
-        ? buildGoalsContext(await ctx.runQuery(api.nutritionGoals.getSettings, {}))
+        ? buildGoalsContext(
+            await ctx.runQuery(api.nutritionGoals.getSettings, {}),
+          )
         : "";
-
+    const prompt = recipeGenerationPrompt(
+      args.description,
+      goalsContext,
+      selectedServings,
+    );
     const response = await client.chat.complete({
       model,
       messages: [
         {
           role: "user",
-          content: recipeGenerationPrompt(args.description, goalsContext),
+          content: prompt,
         },
       ],
       temperature: 0.7,
       responseFormat: { type: "json_object" },
     });
 
-    const content = response.choices?.[0]?.message?.content;
-    const text =
-      typeof content === "string"
-        ? content
-        : Array.isArray(content)
-          ? content
-              .filter(
-                (c): c is { type: "text"; text: string } =>
-                  typeof c === "object" &&
-                  c !== null &&
-                  (c as { type?: string }).type === "text"
-              )
-              .map((c) => c.text)
-              .join("")
-          : "";
+    const text = extractTextFromMessageContent(
+      response.choices?.[0]?.message?.content,
+    );
+    const trimmedText = text.trim();
 
-    const parsed: GeneratedRecipe = JSON.parse(text.trim());
+    const parsed = JSON.parse(trimmedText) as GeneratedRecipe;
+    const normalizedIngredients = parsed.ingredients.map((ing) =>
+      normalizeAndScaleIngredientMacros(toIngredientInputFromGenerated(ing)),
+    );
+    parsed.ingredients.forEach((ing, index) => {
+      const normalized = normalizedIngredients[index];
+      if (normalized.correctionFactor > 1) {
+        console.log(
+          `[recipes.generate] Auto-scaled macros by x${normalized.correctionFactor} for ingredient "${ing.name}" (${ing.unit}).`,
+        );
+      }
+      if (normalized.kcalWasRepaired) {
+        console.log(
+          `[recipes.generate] Repaired kcal from macros for ingredient "${ing.name}" (${ing.unit}).`,
+        );
+      }
+    });
 
     const recipeId: Id<"recipes"> = await ctx.runMutation(api.recipes.create, {
       name: parsed.name,
       description: parsed.description,
-      servings: 1,
+      servings: selectedServings,
       mealTags: (() => {
         const aiMealTags = sanitizeMealTags(parsed.mealTags);
         return aiMealTags.length > 0
@@ -436,18 +808,125 @@ export const generate = action({
           : inferMealTagsFromText(`${parsed.name} ${parsed.description}`);
       })(),
       instructions: parsed.instructions,
-      ingredients: parsed.ingredients.map((ing) => ({
-        name: ing.name,
-        amount: ing.amount,
-        unit: ing.unit,
-        kcalPerUnit: ing.kcalPerUnit,
-        proteinPerUnit: ing.proteinPerUnit,
-        carbsPerUnit: ing.carbsPerUnit,
-        fatPerUnit: ing.fatPerUnit,
-      })),
+      ingredients: parsed.ingredients.map((ing, index) => {
+        const normalized = normalizedIngredients[index];
+        if ("kcalPer100" in normalized) {
+          return {
+            name: ing.name,
+            amount: ing.amount,
+            unit: normalizeUnitShortName(ing.unit),
+            kcalPer100: normalized.kcalPer100,
+            proteinPer100: normalized.proteinPer100,
+            carbsPer100: normalized.carbsPer100,
+            fatPer100: normalized.fatPer100,
+          };
+        }
+        return {
+          name: ing.name,
+          amount: ing.amount,
+          unit: normalizeUnitShortName(ing.unit),
+          kcalPerUnit: normalized.kcalPerUnit,
+          proteinPerUnit: normalized.proteinPerUnit,
+          carbsPerUnit: normalized.carbsPerUnit,
+          fatPerUnit: normalized.fatPerUnit,
+        };
+      }),
     });
 
+    if (args.debug === true) {
+      return {
+        recipeId,
+        prompt,
+        responseText: text,
+      };
+    }
     return recipeId;
+  },
+});
+
+export const regenerateIngredientMacros = action({
+  args: {
+    ingredientId: v.id("recipeIngredients"),
+    debug: v.optional(v.boolean()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      ingredientId: v.id("recipeIngredients"),
+      prompt: v.string(),
+      responseText: v.string(),
+      updatedMacros: ingredientMacroUpdateValidator,
+    }),
+  ),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<null | {
+    ingredientId: Id<"recipeIngredients">;
+    prompt: string;
+    responseText: string;
+    updatedMacros: IngredientMacroUpdate;
+  }> => {
+    const ingredient: IngredientDocument | null = await ctx.runQuery(
+      api.recipes.getIngredient,
+      {
+        ingredientId: args.ingredientId,
+      },
+    );
+    if (!ingredient) {
+      throw new Error("Ingredient not found");
+    }
+
+    const client = createMistralClient();
+    const prompt = ingredientMacroRegenerationPrompt(ingredient);
+    const response = await client.chat.complete({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.2,
+      responseFormat: { type: "json_object" },
+    });
+
+    const text = extractTextFromMessageContent(
+      response.choices?.[0]?.message?.content,
+    );
+    const parsed = JSON.parse(text.trim()) as GeneratedIngredient;
+    const normalized = normalizeAndScaleIngredientMacros({
+      ...toIngredientInputFromGenerated(parsed),
+      name: ingredient.name,
+      amount: ingredient.amount,
+      unit: ingredient.unit,
+    });
+    if (normalized.correctionFactor > 1) {
+      console.log(
+        `[recipes.regenerateIngredientMacros] Auto-scaled macros by x${normalized.correctionFactor} for ingredient "${ingredient.name}" (${ingredient.unit}).`,
+      );
+    }
+    if (normalized.kcalWasRepaired) {
+      console.log(
+        `[recipes.regenerateIngredientMacros] Repaired kcal from macros for ingredient "${ingredient.name}" (${ingredient.unit}).`,
+      );
+    }
+
+    await ctx.runMutation(api.recipes.updateIngredientMacros, {
+      ingredientId: ingredient._id,
+      macros: toMacroUpdateFromNormalized(normalized),
+    });
+
+    if (args.debug === true) {
+      return {
+        ingredientId: ingredient._id,
+        prompt,
+        responseText: text,
+        updatedMacros: toMacroUpdateFromNormalized(normalized),
+      };
+    }
+
+    return null;
   },
 });
 

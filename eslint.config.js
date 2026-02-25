@@ -73,6 +73,9 @@ export default tseslint.config(
       // for consistency (esp. Convex `handler`s)
       "@typescript-eslint/require-await": "off",
 
+      // Keep conditionals readable by disallowing nested ternaries.
+      "no-nested-ternary": "error",
+
       // Enforce Temporal API usage over legacy Date APIs.
       "no-restricted-properties": [
         "error",

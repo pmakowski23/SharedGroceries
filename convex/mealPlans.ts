@@ -2,6 +2,10 @@ import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import {
+  ingredientMacrosForAmount,
+  normalizeIngredientMacroShape,
+} from "./lib/ingredientNutrition";
 
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
 
@@ -77,12 +81,15 @@ export const getWeek = query({
 
       const scale = plan.servings / recipe.servings;
       const macros = ingredients.reduce(
-        (acc, ing) => ({
-          kcal: acc.kcal + ing.kcalPerUnit * ing.amount * scale,
-          protein: acc.protein + ing.proteinPerUnit * ing.amount * scale,
-          carbs: acc.carbs + ing.carbsPerUnit * ing.amount * scale,
-          fat: acc.fat + ing.fatPerUnit * ing.amount * scale,
-        }),
+        (acc, ing) => {
+          const ingredientTotals = ingredientMacrosForAmount(normalizeIngredientMacroShape(ing));
+          return {
+            kcal: acc.kcal + ingredientTotals.kcal * scale,
+            protein: acc.protein + ingredientTotals.protein * scale,
+            carbs: acc.carbs + ingredientTotals.carbs * scale,
+            fat: acc.fat + ingredientTotals.fat * scale,
+          };
+        },
         { kcal: 0, protein: 0, carbs: 0, fat: 0 }
       );
 
@@ -207,12 +214,15 @@ export const generateDayPlan = mutation({
       }
 
       const base = ingredients.reduce(
-        (acc, ing) => ({
-          kcal: acc.kcal + ing.kcalPerUnit * ing.amount,
-          protein: acc.protein + ing.proteinPerUnit * ing.amount,
-          carbs: acc.carbs + ing.carbsPerUnit * ing.amount,
-          fat: acc.fat + ing.fatPerUnit * ing.amount,
-        }),
+        (acc, ing) => {
+          const ingredientTotals = ingredientMacrosForAmount(normalizeIngredientMacroShape(ing));
+          return {
+            kcal: acc.kcal + ingredientTotals.kcal,
+            protein: acc.protein + ingredientTotals.protein,
+            carbs: acc.carbs + ingredientTotals.carbs,
+            fat: acc.fat + ingredientTotals.fat,
+          };
+        },
         emptyMacros()
       );
 

@@ -2,11 +2,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
+import { aiDebugLogPlugin } from "./vite/aiDebugLogPlugin";
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
+    mode === "development" && aiDebugLogPlugin(),
     VitePWA({
       registerType: "autoUpdate",
       devOptions: { enabled: true },
