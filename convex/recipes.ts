@@ -361,6 +361,10 @@ function createMistralClient() {
   return new Mistral({ apiKey });
 }
 
+function isDevEnvironment(): boolean {
+  return process.env.CONVEX_ENV === "dev";
+}
+
 function extractTextFromMessageContent(content: unknown): string {
   if (typeof content === "string") {
     return content.trim();
@@ -799,6 +803,11 @@ export const generate = action({
         completeness.missingIngredients.length > 0 ||
         completeness.missingStepTokens.length > 0
       ) {
+        if (!isDevEnvironment()) {
+          throw new Error(
+            `Recipe import is incomplete. Missing ingredients: ${completeness.missingIngredients.join(", ") || "none"}. Missing steps/phases: ${completeness.missingStepTokens.join(", ") || "none"}.`,
+          );
+        }
         const repairPrompt = recipeRegenerationPromptForMissingItems(
           args.description,
           text,
