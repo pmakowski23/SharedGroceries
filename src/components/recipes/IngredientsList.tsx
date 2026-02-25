@@ -1,4 +1,4 @@
-import { KeyboardEvent, useState } from "react";
+import { KeyboardEvent, useMemo, useState } from "react";
 import { useAction, useMutation } from "convex/react";
 import { RotateCw } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
@@ -11,6 +11,10 @@ import { ingredientMacrosForAmount } from "@/lib/ingredientNutrition";
 
 type IngredientItem = {
   _id: Id<"recipeIngredients">;
+  partId?: Id<"recipeParts">;
+  sourcePartId?: Id<"recipeParts">;
+  usedAmount?: number;
+  usedUnit?: string;
   name: string;
   amount: number;
   unit: string;
@@ -29,17 +33,52 @@ type IngredientItem = {
     }
   );
 
+type RecipePartItem = {
+  _id: string;
+  name: string;
+  scale: number;
+  yieldAmount?: number;
+  yieldUnit?: string;
+};
+
 type IngredientsListProps = {
   ingredients: Array<IngredientItem>;
+  parts: Array<RecipePartItem>;
+  setPartScale: (partId: string, scale: number) => void;
   scale: number;
 };
 
-export function IngredientsList({ ingredients, scale }: IngredientsListProps) {
+export function IngredientsList({
+  ingredients,
+  parts,
+  setPartScale,
+  scale,
+}: IngredientsListProps) {
   const regenerateIngredientMacros = useAction(api.recipes.regenerateIngredientMacros);
   const updateIngredientAmount = useMutation(api.recipes.updateIngredientAmount);
+  const updatePart = useMutation(api.recipes.updatePart);
+  const updateIngredientPartUsage = useMutation(api.recipes.updateIngredientPartUsage);
   const [regeneratingIds, setRegeneratingIds] = useState<Record<string, boolean>>({});
   const [savingAmountIds, setSavingAmountIds] = useState<Record<string, boolean>>({});
   const [editedAmounts, setEditedAmounts] = useState<Record<string, string>>({});
+  const [editedPartScales, setEditedPartScales] = useState<Record<string, string>>({});
+  const [savingUsageIds, setSavingUsageIds] = useState<Record<string, boolean>>({});
+
+  const groupedParts = useMemo(() => {
+    const partById = new Map(parts.map((part) => [part._id, part]));
+    if (parts.length === 0) {
+      return [
+        {
+          part: { _id: "legacy-main", name: "Main", scale: 1 } as RecipePartItem,
+          ingredients,
+        },
+      ];
+    }
+    return parts.map((part) => ({
+      part,
+      ingredients: ingredients.filter((ingredient) => ingredient.partId === part._id),
+    }));
+  }, [ingredients, parts]);
 
   const getDisplayAmount = (ingredientAmount: number) =>
     Math.round(ingredientAmount * scale * 100) / 100;
@@ -50,6 +89,41 @@ export function IngredientsList({ ingredients, scale }: IngredientsListProps) {
       delete next[ingredientId];
       return next;
     });
+  };
+
+  const savePartScale = async (part: RecipePartItem, rawInput: string) => {
+    const parsed = Number(rawInput);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return;
+    }
+    setPartScale(part._id, parsed);
+    if (part._id === "legacy-main") return;
+    await updatePart({
+      partId: part._id as Id<"recipeParts">,
+      scale: Math.round(parsed * 1000) / 1000,
+    });
+  };
+
+  const saveIngredientUsage = async (ingredient: IngredientItem, fields: {
+    partId?: string;
+    sourcePartId?: string;
+    usedAmount?: string;
+    usedUnit?: string;
+  }) => {
+    setSavingUsageIds((prev) => ({ ...prev, [ingredient._id]: true }));
+    try {
+      await updateIngredientPartUsage({
+        ingredientId: ingredient._id,
+        partId: fields.partId as Id<"recipeParts"> | undefined,
+        sourcePartId: fields.sourcePartId
+          ? (fields.sourcePartId as Id<"recipeParts">)
+          : undefined,
+        usedAmount: fields.sourcePartId ? Number(fields.usedAmount ?? ingredient.usedAmount ?? 0) : undefined,
+        usedUnit: fields.sourcePartId ? (fields.usedUnit ?? ingredient.usedUnit ?? ingredient.unit) : undefined,
+      });
+    } finally {
+      setSavingUsageIds((prev) => ({ ...prev, [ingredient._id]: false }));
+    }
   };
 
   const saveEditedAmount = async (
@@ -161,9 +235,39 @@ export function IngredientsList({ ingredients, scale }: IngredientsListProps) {
   return (
     <>
       <h2 className="mt-6 mb-3 text-lg font-semibold">Ingredients</h2>
-      <Card>
-        <CardContent className="divide-y p-0">
-          {ingredients.map((ingredient) => {
+      <div className="space-y-3">
+        {groupedParts.map(({ part, ingredients: partIngredients }) => (
+          <Card key={part._id}>
+            <CardContent className="p-0">
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div>
+                  <div className="text-sm font-semibold">{part.name}</div>
+                  {part.yieldAmount && part.yieldUnit ? (
+                    <div className="text-xs text-muted-foreground">
+                      Yield: {part.yieldAmount} {part.yieldUnit}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>Part scale</span>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    className="h-7 w-20 text-right"
+                    value={editedPartScales[part._id] ?? String(part.scale)}
+                    onChange={(event) =>
+                      setEditedPartScales((prev) => ({
+                        ...prev,
+                        [part._id]: event.target.value,
+                      }))
+                    }
+                    onBlur={() => void savePartScale(part, editedPartScales[part._id] ?? String(part.scale))}
+                  />
+                </div>
+              </div>
+              <div className="divide-y">
+                {partIngredients.map((ingredient) => {
             const amount = getDisplayAmount(ingredient.amount);
             const totals = ingredientMacrosForAmount(ingredient);
             const kcal = Math.round(totals.kcal * scale);
@@ -222,11 +326,76 @@ export function IngredientsList({ ingredients, scale }: IngredientsListProps) {
                 <div className="mt-1 text-xs text-muted-foreground">
                   {kcal} kcal • P {protein} g • C {carbs} g • F {fat} g
                 </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                  <select
+                    className="h-8 rounded-md border bg-background px-2"
+                    value={ingredient.sourcePartId ?? ""}
+                    disabled={savingUsageIds[ingredient._id] === true}
+                    onChange={(event) =>
+                      void saveIngredientUsage(ingredient, {
+                        partId: ingredient.partId,
+                        sourcePartId: event.target.value || undefined,
+                        usedAmount: String(ingredient.usedAmount ?? ""),
+                        usedUnit: ingredient.usedUnit ?? ingredient.unit,
+                      })
+                    }
+                  >
+                    <option value="">Direct ingredient</option>
+                    {parts
+                      .filter((candidate) => candidate._id !== part._id)
+                      .map((candidate) => (
+                        <option key={candidate._id} value={candidate._id}>
+                          Uses from {candidate.name}
+                        </option>
+                      ))}
+                  </select>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    placeholder="Used amount"
+                    defaultValue={ingredient.usedAmount ?? ""}
+                    disabled={
+                      savingUsageIds[ingredient._id] === true ||
+                      !ingredient.sourcePartId
+                    }
+                    onBlur={(event) =>
+                      void saveIngredientUsage(ingredient, {
+                        partId: ingredient.partId,
+                        sourcePartId: ingredient.sourcePartId,
+                        usedAmount: event.target.value,
+                        usedUnit: ingredient.usedUnit ?? ingredient.unit,
+                      })
+                    }
+                    className="h-8"
+                  />
+                  <Input
+                    type="text"
+                    placeholder="Used unit"
+                    defaultValue={ingredient.usedUnit ?? ingredient.unit}
+                    disabled={
+                      savingUsageIds[ingredient._id] === true ||
+                      !ingredient.sourcePartId
+                    }
+                    onBlur={(event) =>
+                      void saveIngredientUsage(ingredient, {
+                        partId: ingredient.partId,
+                        sourcePartId: ingredient.sourcePartId,
+                        usedAmount: String(ingredient.usedAmount ?? ""),
+                        usedUnit: event.target.value,
+                      })
+                    }
+                    className="h-8"
+                  />
+                </div>
               </div>
             );
           })}
-        </CardContent>
-      </Card>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </>
   );
 }

@@ -75,10 +75,26 @@ const applicationTables = {
     ),
   }).searchIndex("search_name", { searchField: "name" }),
 
+  recipeParts: defineTable({
+    recipeId: v.id("recipes"),
+    name: v.string(),
+    position: v.number(),
+    scale: v.number(),
+    yieldAmount: v.optional(v.number()),
+    yieldUnit: v.optional(v.string()),
+    instructions: v.array(v.string()),
+  })
+    .index("by_recipeId", ["recipeId"])
+    .index("by_recipeId_and_position", ["recipeId", "position"]),
+
   recipeIngredients: defineTable(
     v.union(
       v.object({
         recipeId: v.id("recipes"),
+        partId: v.optional(v.id("recipeParts")),
+        sourcePartId: v.optional(v.id("recipeParts")),
+        usedAmount: v.optional(v.number()),
+        usedUnit: v.optional(v.string()),
         name: v.string(),
         amount: v.number(),
         unit: v.string(),
@@ -89,6 +105,10 @@ const applicationTables = {
       }),
       v.object({
         recipeId: v.id("recipes"),
+        partId: v.optional(v.id("recipeParts")),
+        sourcePartId: v.optional(v.id("recipeParts")),
+        usedAmount: v.optional(v.number()),
+        usedUnit: v.optional(v.string()),
         name: v.string(),
         amount: v.number(),
         unit: v.string(),
@@ -98,7 +118,10 @@ const applicationTables = {
         fatPerUnit: v.number(),
       }),
     ),
-  ).index("by_recipeId", ["recipeId"]),
+  )
+    .index("by_recipeId", ["recipeId"])
+    .index("by_recipeId_and_partId", ["recipeId", "partId"])
+    .index("by_sourcePartId", ["sourcePartId"]),
 
   mealPlans: defineTable({
     date: v.string(),

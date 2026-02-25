@@ -7,6 +7,7 @@ type CompletenessReport = {
   isStructuredRecipe: boolean;
   missingIngredients: Array<string>;
   missingStepTokens: Array<string>;
+  missingSectionTokens: Array<string>;
 };
 
 const DIRECTION_MARKER_REGEX = /\b(directions|instruction|method|preparation)\b/i;
@@ -125,6 +126,28 @@ function instructionCandidatesFromSection(lines: Array<string>): Array<string> {
   return Array.from(unique);
 }
 
+function sectionHeaderCandidates(lines: Array<string>): Array<string> {
+  const unique = new Set<string>();
+  const ignorableHeaders = new Set([
+    "directions",
+    "direction",
+    "instructions",
+    "instruction",
+    "method",
+    "preparation",
+    "assembly",
+  ]);
+  for (const line of lines) {
+    if (/^[A-Za-z][A-Za-z ]+:$/.test(line)) {
+      const token = normalizeToken(line.replace(/:$/, ""));
+      if (!ignorableHeaders.has(token)) {
+        unique.add(token);
+      }
+    }
+  }
+  return Array.from(unique);
+}
+
 function getWordSet(value: string): Set<string> {
   return new Set(
     normalizeToken(value)
@@ -194,16 +217,19 @@ export function evaluateRecipeImportCompleteness(
       isStructuredRecipe: false,
       missingIngredients: [],
       missingStepTokens: [],
+      missingSectionTokens: [],
     };
   }
 
   const { ingredientLines, instructionLines } = splitRecipeSections(inputText);
   const candidateIngredients = ingredientCandidatesFromSection(ingredientLines);
   const candidateSteps = instructionCandidatesFromSection(instructionLines);
+  const candidateSections = sectionHeaderCandidates(splitLines(inputText));
   const generatedIngredientText = generatedRecipe.ingredients
     .map((ingredient) => ingredient.name)
     .join(" ");
   const generatedInstructionText = generatedRecipe.instructions.join(" ");
+  const generatedAllText = `${generatedIngredientText} ${generatedInstructionText}`;
 
   const missingIngredients = candidateIngredients.filter(
     (candidate) => !containsTokenByWords(generatedIngredientText, candidate, 0.6),
@@ -211,10 +237,14 @@ export function evaluateRecipeImportCompleteness(
   const missingStepTokens = candidateSteps.filter(
     (candidate) => !containsTokenByWords(generatedInstructionText, candidate, 0.25),
   );
+  const missingSectionTokens = candidateSections.filter(
+    (candidate) => !containsTokenByWords(generatedAllText, candidate, 0.5),
+  );
 
   return {
     isStructuredRecipe: true,
     missingIngredients,
     missingStepTokens,
+    missingSectionTokens,
   };
 }

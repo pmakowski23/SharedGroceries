@@ -24,6 +24,8 @@ describe("recipe prompts macro shape contract", () => {
     });
     expect(prompt).toContain("Strict preserve mode is enabled");
     expect(prompt).toContain("Do NOT summarize or collapse source steps");
+    expect(prompt).toContain("Preserve sub-recipe sections as separate entries");
+    expect(prompt).toContain("Include part-specific instructions");
     expect(prompt).toContain("include them with small estimated amounts");
   });
 
@@ -49,9 +51,11 @@ describe("recipe prompts macro shape contract", () => {
       '{"name":"burger"}',
       ["ketchup", "mustard"],
       ["toast buns"],
+      ["burger sauce"],
     );
     expect(prompt).toContain("Missing ingredient tokens: ketchup, mustard");
     expect(prompt).toContain("Missing instruction tokens/phases: toast buns");
+    expect(prompt).toContain("Missing section/component headers: burger sauce");
     expect(prompt).toContain("Include \"to taste\" seasoning lines");
   });
 });

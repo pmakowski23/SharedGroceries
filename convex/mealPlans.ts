@@ -3,9 +3,10 @@ import { v } from "convex/values";
 import { api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import {
-  ingredientMacrosForAmount,
   normalizeIngredientMacroShape,
+  normalizeUnitShortName,
 } from "./lib/ingredientNutrition";
+import { computeRecipePartMacros } from "./lib/recipePartNutrition";
 
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
 
@@ -78,20 +79,33 @@ export const getWeek = query({
         .query("recipeIngredients")
         .withIndex("by_recipeId", (q) => q.eq("recipeId", plan.recipeId))
         .collect();
+      const parts = await ctx.db
+        .query("recipeParts")
+        .withIndex("by_recipeId", (q) => q.eq("recipeId", plan.recipeId))
+        .collect();
 
       const scale = plan.servings / recipe.servings;
-      const macros = ingredients.reduce(
-        (acc, ing) => {
-          const ingredientTotals = ingredientMacrosForAmount(normalizeIngredientMacroShape(ing));
-          return {
-            kcal: acc.kcal + ingredientTotals.kcal * scale,
-            protein: acc.protein + ingredientTotals.protein * scale,
-            carbs: acc.carbs + ingredientTotals.carbs * scale,
-            fat: acc.fat + ingredientTotals.fat * scale,
-          };
-        },
-        { kcal: 0, protein: 0, carbs: 0, fat: 0 }
-      );
+      const effectiveParts =
+        parts.length > 0 ? parts : [{ _id: "legacy-main", scale: 1 }];
+      const normalizedIngredients = ingredients.map((ingredient) => {
+        const normalized = normalizeIngredientMacroShape(ingredient);
+        return {
+          ...ingredient,
+          ...normalized,
+          unit: normalizeUnitShortName(normalized.unit),
+          partId: ingredient.partId ?? "legacy-main",
+        };
+      });
+      const macrosBase = computeRecipePartMacros(
+        effectiveParts as Array<{ _id: string; scale: number; yieldAmount?: number; yieldUnit?: string }>,
+        normalizedIngredients as Array<any>,
+      ).total;
+      const macros = {
+        kcal: macrosBase.kcal * scale,
+        protein: macrosBase.protein * scale,
+        carbs: macrosBase.carbs * scale,
+        fat: macrosBase.fat * scale,
+      };
 
       result.push({
         ...plan,
@@ -209,22 +223,29 @@ export const generateDayPlan = mutation({
         .query("recipeIngredients")
         .withIndex("by_recipeId", (q) => q.eq("recipeId", recipe._id))
         .collect();
+      const parts = await ctx.db
+        .query("recipeParts")
+        .withIndex("by_recipeId", (q) => q.eq("recipeId", recipe._id))
+        .collect();
       if (ingredients.length === 0 || recipe.servings <= 0) {
         continue;
       }
 
-      const base = ingredients.reduce(
-        (acc, ing) => {
-          const ingredientTotals = ingredientMacrosForAmount(normalizeIngredientMacroShape(ing));
-          return {
-            kcal: acc.kcal + ingredientTotals.kcal,
-            protein: acc.protein + ingredientTotals.protein,
-            carbs: acc.carbs + ingredientTotals.carbs,
-            fat: acc.fat + ingredientTotals.fat,
-          };
-        },
-        emptyMacros()
-      );
+      const effectiveParts =
+        parts.length > 0 ? parts : [{ _id: "legacy-main", scale: 1 }];
+      const normalizedIngredients = ingredients.map((ingredient) => {
+        const normalized = normalizeIngredientMacroShape(ingredient);
+        return {
+          ...ingredient,
+          ...normalized,
+          unit: normalizeUnitShortName(normalized.unit),
+          partId: ingredient.partId ?? "legacy-main",
+        };
+      });
+      const base = computeRecipePartMacros(
+        effectiveParts as Array<{ _id: string; scale: number; yieldAmount?: number; yieldUnit?: string }>,
+        normalizedIngredients as Array<any>,
+      ).total;
 
       const persistedTags = (recipe as { mealTags?: Array<string> }).mealTags ?? [];
       const normalizedTags = persistedTags.filter(isMealTag);
@@ -406,15 +427,21 @@ export const generateGroceryList = action({
       const ingredients = await ctx.runQuery(api.recipes.getIngredients, {
         recipeId: meal.recipeId,
       });
+      const parts = await ctx.runQuery(api.recipes.getParts, {
+        recipeId: meal.recipeId,
+      });
+      const partScaleById = new Map(parts.map((part) => [part._id, part.scale]));
 
       const scale = meal.servings / recipe.servings;
 
       for (const ing of ingredients) {
+        if (ing.sourcePartId) continue;
         const key = `${ing.name.toLowerCase()}|${ing.unit}`;
         if (!aggregated[key]) {
           aggregated[key] = { amount: 0, unit: ing.unit };
         }
-        aggregated[key].amount += ing.amount * scale;
+        const partScale = ing.partId ? (partScaleById.get(ing.partId) ?? 1) : 1;
+        aggregated[key].amount += ing.amount * scale * partScale;
       }
     }
 

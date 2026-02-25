@@ -63,6 +63,7 @@ describe("recipe import validation", () => {
     expect(report.missingStepTokens.some((token) => token.includes("toast buns"))).toBe(
       true,
     );
+    expect(Array.isArray(report.missingSectionTokens)).toBe(true);
   });
 
   it("accepts complete output with sauce and assembly steps retained", () => {
@@ -88,5 +89,6 @@ describe("recipe import validation", () => {
 
     expect(report.missingIngredients).toEqual([]);
     expect(report.missingStepTokens).toEqual([]);
+    expect(report.missingSectionTokens).toEqual([]);
   });
 });

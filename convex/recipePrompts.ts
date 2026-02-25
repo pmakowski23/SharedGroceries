@@ -26,6 +26,9 @@ const ingredientJsonShapeMassVolume = `{
       "name": "ingredient name",
       "amount": 200,
       "unit": "g",
+      "sourcePartName": "Burger Sauce",
+      "usedAmount": 15,
+      "usedUnit": "g",
       "kcalPer100": 165,
       "proteinPer100": 31,
       "carbsPer100": 0.0,
@@ -36,6 +39,9 @@ const ingredientJsonShapePerUnit = `{
       "name": "ingredient name",
       "amount": 2,
       "unit": "clove",
+      "sourcePartName": "Burger Sauce",
+      "usedAmount": 1,
+      "usedUnit": "tbsp",
       "kcalPerUnit": 4.5,
       "proteinPerUnit": 0.2,
       "carbsPerUnit": 1.0,
@@ -60,8 +66,18 @@ Return valid JSON with exactly this shape:
   "servings": ${servings},
   "mealTags": ["Dinner"],
   "instructions": ["Step 1", "Step 2"],
-  "ingredients": [
-    ${ingredientJsonShapeMassVolume}
+  "parts": [
+    {
+      "name": "Main",
+      "position": 0,
+      "scale": 1,
+      "yieldAmount": 300,
+      "yieldUnit": "g",
+      "instructions": ["Prepare this part"],
+      "ingredients": [
+        ${ingredientJsonShapeMassVolume}
+      ]
+    }
   ]
 }
 
@@ -71,7 +87,11 @@ Rules:
 - Always set "servings" to exactly ${servings}.
 - ${options?.strictPreserve === true ? "Strict preserve mode is enabled. Keep all ingredients and all cooking phases from the source recipe." : "When information is missing, infer realistic details that match the user's request."}
 - ${options?.strictPreserve === true ? "Do NOT summarize or collapse source steps. Keep distinct procedural steps, including assembly and sub-recipes." : "Keep steps concise and practical."}
-- ${options?.strictPreserve === true ? 'Keep sub-recipe sections (for example sauce components) by flattening them into the single "ingredients" array.' : "Use a single flat ingredient list."}
+- ${options?.strictPreserve === true ? 'Preserve sub-recipe sections as separate entries inside "parts" (for example "Burger" and "Burger Sauce").' : 'Return one or more "parts" and place ingredients under the correct part.'}
+- Include part-specific instructions in each part's \`instructions\` array, and keep top-level \`instructions\` as an overall combined flow.
+- If one part consumes a portion of another prepared part, set \`sourcePartName\`, \`usedAmount\`, and \`usedUnit\` on that ingredient line.
+- Do not use \`sourcePartName\` for normal ingredients that are bought directly.
+- \`yieldAmount\` and \`yieldUnit\` describe total prepared output for that part when relevant (sauce, dressing, etc.).
 - ${options?.strictPreserve === true ? 'For lines like "salt to taste" or "pepper to taste", include them with small estimated amounts and sensible macros.' : 'If ingredient amounts are vague, pick reasonable estimates.'}
 - For oils listed for frying, count ONLY the oil absorbed by the food in ingredient amounts/macros.
 - Assume 5% of total frying oil is absorbed unless absorbed oil amount is explicitly stated.
@@ -97,6 +117,7 @@ export const recipeRegenerationPromptForMissingItems = (
   firstAttemptResponseText: string,
   missingIngredients: Array<string>,
   missingStepTokens: Array<string>,
+  missingSectionTokens: Array<string>,
 ): string => `
 You returned incomplete JSON for a recipe import. Retry and return complete JSON.
 
@@ -109,6 +130,7 @@ Your previous JSON response:
 Missing elements that MUST be represented:
 - Missing ingredient tokens: ${missingIngredients.length > 0 ? missingIngredients.join(", ") : "none"}
 - Missing instruction tokens/phases: ${missingStepTokens.length > 0 ? missingStepTokens.join(", ") : "none"}
+- Missing section/component headers: ${missingSectionTokens.length > 0 ? missingSectionTokens.join(", ") : "none"}
 
 Return valid JSON with the same schema as before.
 

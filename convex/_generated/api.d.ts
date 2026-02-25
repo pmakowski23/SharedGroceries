@@ -18,6 +18,7 @@ import type * as http from "../http.js";
 import type * as lib_ingredientNutrition from "../lib/ingredientNutrition.js";
 import type * as lib_recipeImportValidation from "../lib/recipeImportValidation.js";
 import type * as lib_recipeMacroNormalization from "../lib/recipeMacroNormalization.js";
+import type * as lib_recipePartNutrition from "../lib/recipePartNutrition.js";
 import type * as lib_time from "../lib/time.js";
 import type * as mealPlans from "../mealPlans.js";
 import type * as nutritionGoals from "../nutritionGoals.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   "lib/ingredientNutrition": typeof lib_ingredientNutrition;
   "lib/recipeImportValidation": typeof lib_recipeImportValidation;
   "lib/recipeMacroNormalization": typeof lib_recipeMacroNormalization;
+  "lib/recipePartNutrition": typeof lib_recipePartNutrition;
   "lib/time": typeof lib_time;
   mealPlans: typeof mealPlans;
   nutritionGoals: typeof nutritionGoals;

@@ -20,13 +20,23 @@ export function RecipeDetailPage() {
   const ingredients = useQuery(api.recipes.getIngredients, {
     recipeId: recipeId as Id<"recipes">,
   });
+  const parts = useQuery(api.recipes.getParts, {
+    recipeId: recipeId as Id<"recipes">,
+  });
 
   const fallbackServings = recipe?.servings ?? 1;
   const fallbackIngredients = ingredients ?? [];
-  const { displayServings, setServings, scale, totalMacros } =
-    useScaledRecipeNutrition(fallbackServings, fallbackIngredients);
+  const fallbackParts = parts ?? [];
+  const {
+    displayServings,
+    setServings,
+    scale,
+    totalMacros,
+    effectiveParts,
+    setPartScale,
+  } = useScaledRecipeNutrition(fallbackServings, fallbackParts, fallbackIngredients);
 
-  if (recipe === undefined || ingredients === undefined) {
+  if (recipe === undefined || ingredients === undefined || parts === undefined) {
     return (
       <div className="flex justify-center py-20">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
@@ -54,12 +64,17 @@ export function RecipeDetailPage() {
       />
       <ServingsControl servings={displayServings} setServings={setServings} />
       <MacrosGrid totalMacros={totalMacros} />
-      <IngredientsList ingredients={ingredients} scale={scale} />
+      <IngredientsList
+        ingredients={ingredients}
+        parts={effectiveParts}
+        setPartScale={setPartScale}
+        scale={scale}
+      />
       <AddIngredientsButton
         recipeId={recipeId as Id<"recipes">}
         servings={displayServings}
       />
-      <InstructionsList instructions={recipe.instructions} />
+      <InstructionsList instructions={recipe.instructions} parts={parts} />
     </div>
   );
 }
