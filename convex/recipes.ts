@@ -56,7 +56,7 @@ type MassVolumeIngredientDocument = {
   _id: Id<"recipeIngredients">;
   _creationTime: number;
   recipeId: Id<"recipes">;
-  partId?: Id<"recipeParts">;
+  partId: Id<"recipeParts">;
   sourcePartId?: Id<"recipeParts">;
   usedAmount?: number;
   usedUnit?: string;
@@ -73,7 +73,7 @@ type PerUnitIngredientDocument = {
   _id: Id<"recipeIngredients">;
   _creationTime: number;
   recipeId: Id<"recipes">;
-  partId?: Id<"recipeParts">;
+  partId: Id<"recipeParts">;
   sourcePartId?: Id<"recipeParts">;
   usedAmount?: number;
   usedUnit?: string;
@@ -226,7 +226,7 @@ const ingredientDocumentValidator = v.union(
     _id: v.id("recipeIngredients"),
     _creationTime: v.number(),
     recipeId: v.id("recipes"),
-    partId: v.optional(v.id("recipeParts")),
+    partId: v.id("recipeParts"),
     sourcePartId: v.optional(v.id("recipeParts")),
     usedAmount: v.optional(v.number()),
     usedUnit: v.optional(v.string()),
@@ -239,7 +239,7 @@ const ingredientDocumentValidator = v.union(
     _id: v.id("recipeIngredients"),
     _creationTime: v.number(),
     recipeId: v.id("recipes"),
-    partId: v.optional(v.id("recipeParts")),
+    partId: v.id("recipeParts"),
     sourcePartId: v.optional(v.id("recipeParts")),
     usedAmount: v.optional(v.number()),
     usedUnit: v.optional(v.string()),
@@ -566,13 +566,6 @@ async function getRecipeParts(
   }));
 }
 
-function normalizeIngredientForLegacyPart(
-  ingredient: IngredientDocument,
-): IngredientDocument {
-  const normalized = normalizeIngredientDocument(ingredient);
-  return normalized;
-}
-
 async function createRecipePart(
   ctx: any,
   recipeId: Id<"recipes">,
@@ -598,22 +591,15 @@ function computeTotalRecipeKcal(
     scale: number;
     yieldAmount?: number;
     yieldUnit?: string;
-  }> =
-    parts.length > 0
-      ? parts.map((part) => ({
-          _id: part._id,
-          scale: part.scale,
-          yieldAmount: part.yieldAmount,
-          yieldUnit: part.yieldUnit,
-        }))
-      : [{ _id: "legacy-main", scale: 1 }];
-  const effectiveIngredients = ingredients.map((ingredient) => ({
-    ...ingredient,
-    partId: ingredient.partId ?? ("legacy-main" as Id<"recipeParts">),
+  }> = parts.map((part) => ({
+    _id: part._id,
+    scale: part.scale,
+    yieldAmount: part.yieldAmount,
+    yieldUnit: part.yieldUnit,
   }));
   return computeRecipePartMacros(
     effectiveParts,
-    effectiveIngredients as Array<any>,
+    ingredients as Array<any>,
   ).total.kcal;
 }
 
@@ -648,7 +634,7 @@ export const list = query({
         .collect();
       const parts = await getRecipeParts(ctx, recipe._id);
       const normalizedIngredients = ingredients.map((ingredient) =>
-        normalizeIngredientForLegacyPart(ingredient as IngredientDocument),
+        normalizeIngredientDocument(ingredient as IngredientDocument),
       );
       const totalKcal = computeTotalRecipeKcal(parts, normalizedIngredients);
       result.push({ ...recipe, mealTags, totalKcal: Math.round(totalKcal) });
@@ -695,7 +681,7 @@ export const getIngredients = query({
       .withIndex("by_recipeId", (q) => q.eq("recipeId", args.recipeId))
       .collect();
     return ingredients.map((ingredient) =>
-      normalizeIngredientForLegacyPart(ingredient as IngredientDocument),
+      normalizeIngredientDocument(ingredient as IngredientDocument),
     );
   },
 });
@@ -955,7 +941,7 @@ export const deletePart = mutation({
 export const updateIngredientPartUsage = mutation({
   args: {
     ingredientId: v.id("recipeIngredients"),
-    partId: v.optional(v.id("recipeParts")),
+    partId: v.id("recipeParts"),
     sourcePartId: v.optional(v.id("recipeParts")),
     usedAmount: v.optional(v.number()),
     usedUnit: v.optional(v.string()),
@@ -967,10 +953,7 @@ export const updateIngredientPartUsage = mutation({
       throw new Error("Ingredient not found");
     }
     const recipeId = ingredient.recipeId as Id<"recipes">;
-    const partId = args.partId ?? (ingredient.partId as Id<"recipeParts"> | undefined);
-    if (!partId) {
-      throw new Error("Ingredient must belong to a part");
-    }
+    const partId = args.partId;
     const part = await ctx.db.get(partId);
     if (!part || part.recipeId !== recipeId) {
       throw new Error("Part does not belong to ingredient recipe");
@@ -1003,55 +986,6 @@ export const updateIngredientPartUsage = mutation({
           : undefined,
     });
     return null;
-  },
-});
-
-export const migrateLegacyRecipeParts = mutation({
-  args: {},
-  returns: v.object({
-    createdParts: v.number(),
-    patchedIngredients: v.number(),
-  }),
-  handler: async (ctx) => {
-    const recipes = await ctx.db.query("recipes").collect();
-    let createdParts = 0;
-    let patchedIngredients = 0;
-    for (const recipe of recipes) {
-      const parts = await ctx.db
-        .query("recipeParts")
-        .withIndex("by_recipeId", (q) => q.eq("recipeId", recipe._id))
-        .collect();
-      let mainPartId: Id<"recipeParts">;
-      if (parts.length === 0) {
-        mainPartId = await ctx.db.insert("recipeParts", {
-          recipeId: recipe._id,
-          name: "Main",
-          position: 0,
-          scale: 1,
-          instructions: recipe.instructions ?? [],
-        });
-        createdParts += 1;
-      } else {
-        mainPartId = parts[0]._id;
-        for (const part of parts) {
-          if (!Array.isArray((part as { instructions?: Array<string> }).instructions)) {
-            await ctx.db.patch(part._id, { instructions: [] });
-          }
-        }
-      }
-
-      const ingredients = await ctx.db
-        .query("recipeIngredients")
-        .withIndex("by_recipeId", (q) => q.eq("recipeId", recipe._id))
-        .collect();
-      for (const ingredient of ingredients) {
-        if (!ingredient.partId) {
-          await ctx.db.patch(ingredient._id, { partId: mainPartId });
-          patchedIngredients += 1;
-        }
-      }
-    }
-    return { createdParts, patchedIngredients };
   },
 });
 
@@ -1478,7 +1412,13 @@ export const addIngredientsToGroceryList = action({
 
     for (const ing of ingredients) {
       if (ing.sourcePartId) continue;
-      const partScale = ing.partId ? (partScaleById.get(ing.partId) ?? 1) : 1;
+      if (!ing.partId) {
+        throw new Error("Ingredient is missing required partId");
+      }
+      const partScale = partScaleById.get(ing.partId);
+      if (partScale === undefined) {
+        throw new Error("Ingredient part not found in recipe parts");
+      }
       const amount = Math.round(ing.amount * scale * partScale * 10) / 10;
       const itemName = `${ing.name} (${amount} ${ing.unit})`;
       await ctx.runAction(api.groceries.categorizeItem, { itemName });

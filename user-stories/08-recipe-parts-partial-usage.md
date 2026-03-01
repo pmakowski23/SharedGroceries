@@ -21,6 +21,7 @@ Users can define recipes in named parts (for example, `Burger`, `Burger Sauce`, 
 - Macro totals are computed from consumed amounts to avoid double counting full prep batches that are not fully plated.
 - Grocery scaling respects part scales and usage lines.
 - Meal planning uses consumed macro totals so targets are matched to realistic intake.
+- No legacy single-part fallback is used; recipes are expected to have explicit parts and ingredient-to-part links.
 
 ## AI Import
 

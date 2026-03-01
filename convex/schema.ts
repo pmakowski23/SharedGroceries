@@ -91,7 +91,7 @@ const applicationTables = {
     v.union(
       v.object({
         recipeId: v.id("recipes"),
-        partId: v.optional(v.id("recipeParts")),
+        partId: v.id("recipeParts"),
         sourcePartId: v.optional(v.id("recipeParts")),
         usedAmount: v.optional(v.number()),
         usedUnit: v.optional(v.string()),
@@ -105,7 +105,7 @@ const applicationTables = {
       }),
       v.object({
         recipeId: v.id("recipes"),
-        partId: v.optional(v.id("recipeParts")),
+        partId: v.id("recipeParts"),
         sourcePartId: v.optional(v.id("recipeParts")),
         usedAmount: v.optional(v.number()),
         usedUnit: v.optional(v.string()),

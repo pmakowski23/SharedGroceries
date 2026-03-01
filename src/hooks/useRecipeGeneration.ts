@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { logAiDebug } from "@/lib/aiDebugLogger";
 
 export function useRecipeGeneration() {
+  const navigate = useNavigate();
   const generateRecipe = useAction(api.recipes.generate);
   const [showGenerate, setShowGenerate] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -24,15 +26,17 @@ export function useRecipeGeneration() {
         debug: import.meta.env.DEV,
       });
       const debugResult =
-        typeof result === "object" && result !== null && "prompt" in result ? result : null;
+        typeof result === "object" && result !== null && "prompt" in result
+          ? result
+          : null;
+      const recipeId = typeof result === "string" ? result : result.recipeId;
       await logAiDebug({
         action: "recipes.generate",
-        input:
-          debugResult?.prompt ?? {
-            description,
-            servings: servingsCount,
-            includeGoalsContext,
-          },
+        input: debugResult?.prompt ?? {
+          description,
+          servings: servingsCount,
+          includeGoalsContext,
+        },
         output:
           debugResult?.responseText ??
           (typeof result === "string"
@@ -42,6 +46,7 @@ export function useRecipeGeneration() {
       });
       setAiPrompt("");
       setShowGenerate(false);
+      void navigate({ to: "/recipes/$recipeId", params: { recipeId } });
     } catch (error) {
       await logAiDebug({
         action: "recipes.generate",

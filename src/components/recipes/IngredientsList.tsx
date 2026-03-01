@@ -11,7 +11,7 @@ import { ingredientMacrosForAmount } from "@/lib/ingredientNutrition";
 
 type IngredientItem = {
   _id: Id<"recipeIngredients">;
-  partId?: Id<"recipeParts">;
+  partId: Id<"recipeParts">;
   sourcePartId?: Id<"recipeParts">;
   usedAmount?: number;
   usedUnit?: string;
@@ -65,15 +65,6 @@ export function IngredientsList({
   const [savingUsageIds, setSavingUsageIds] = useState<Record<string, boolean>>({});
 
   const groupedParts = useMemo(() => {
-    const partById = new Map(parts.map((part) => [part._id, part]));
-    if (parts.length === 0) {
-      return [
-        {
-          part: { _id: "legacy-main", name: "Main", scale: 1 } as RecipePartItem,
-          ingredients,
-        },
-      ];
-    }
     return parts.map((part) => ({
       part,
       ingredients: ingredients.filter((ingredient) => ingredient.partId === part._id),
@@ -97,7 +88,6 @@ export function IngredientsList({
       return;
     }
     setPartScale(part._id, parsed);
-    if (part._id === "legacy-main") return;
     await updatePart({
       partId: part._id as Id<"recipeParts">,
       scale: Math.round(parsed * 1000) / 1000,
@@ -105,7 +95,7 @@ export function IngredientsList({
   };
 
   const saveIngredientUsage = async (ingredient: IngredientItem, fields: {
-    partId?: string;
+    partId: string;
     sourcePartId?: string;
     usedAmount?: string;
     usedUnit?: string;
@@ -114,7 +104,7 @@ export function IngredientsList({
     try {
       await updateIngredientPartUsage({
         ingredientId: ingredient._id,
-        partId: fields.partId as Id<"recipeParts"> | undefined,
+        partId: fields.partId as Id<"recipeParts">,
         sourcePartId: fields.sourcePartId
           ? (fields.sourcePartId as Id<"recipeParts">)
           : undefined,

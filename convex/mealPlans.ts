@@ -85,19 +85,16 @@ export const getWeek = query({
         .collect();
 
       const scale = plan.servings / recipe.servings;
-      const effectiveParts =
-        parts.length > 0 ? parts : [{ _id: "legacy-main", scale: 1 }];
       const normalizedIngredients = ingredients.map((ingredient) => {
         const normalized = normalizeIngredientMacroShape(ingredient);
         return {
           ...ingredient,
           ...normalized,
           unit: normalizeUnitShortName(normalized.unit),
-          partId: ingredient.partId ?? "legacy-main",
         };
       });
       const macrosBase = computeRecipePartMacros(
-        effectiveParts as Array<{ _id: string; scale: number; yieldAmount?: number; yieldUnit?: string }>,
+        parts as Array<{ _id: string; scale: number; yieldAmount?: number; yieldUnit?: string }>,
         normalizedIngredients as Array<any>,
       ).total;
       const macros = {
@@ -231,19 +228,16 @@ export const generateDayPlan = mutation({
         continue;
       }
 
-      const effectiveParts =
-        parts.length > 0 ? parts : [{ _id: "legacy-main", scale: 1 }];
       const normalizedIngredients = ingredients.map((ingredient) => {
         const normalized = normalizeIngredientMacroShape(ingredient);
         return {
           ...ingredient,
           ...normalized,
           unit: normalizeUnitShortName(normalized.unit),
-          partId: ingredient.partId ?? "legacy-main",
         };
       });
       const base = computeRecipePartMacros(
-        effectiveParts as Array<{ _id: string; scale: number; yieldAmount?: number; yieldUnit?: string }>,
+        parts as Array<{ _id: string; scale: number; yieldAmount?: number; yieldUnit?: string }>,
         normalizedIngredients as Array<any>,
       ).total;
 
@@ -440,7 +434,13 @@ export const generateGroceryList = action({
         if (!aggregated[key]) {
           aggregated[key] = { amount: 0, unit: ing.unit };
         }
-        const partScale = ing.partId ? (partScaleById.get(ing.partId) ?? 1) : 1;
+        if (!ing.partId) {
+          throw new Error("Ingredient is missing required partId");
+        }
+        const partScale = partScaleById.get(ing.partId);
+        if (partScale === undefined) {
+          throw new Error("Ingredient part not found in recipe parts");
+        }
         aggregated[key].amount += ing.amount * scale * partScale;
       }
     }

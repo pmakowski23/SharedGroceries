@@ -4,7 +4,7 @@ import { computePartAwareMacros } from "../lib/recipePartNutrition";
 
 type IngredientNutrition = {
   _id: string;
-  partId?: string;
+  partId: string;
   sourcePartId?: string;
   usedAmount?: number;
   usedUnit?: string;
@@ -45,9 +45,6 @@ export function useScaledRecipeNutrition(
   const scale = displayServings / baseServings;
 
   const effectiveParts = useMemo(() => {
-    if (parts.length === 0) {
-      return [{ _id: "legacy-main", name: "Main", scale: 1 }];
-    }
     return parts.map((part) => ({
       ...part,
       scale: partScaleOverrides[part._id] ?? part.scale,
@@ -55,11 +52,7 @@ export function useScaledRecipeNutrition(
   }, [parts, partScaleOverrides]);
 
   const totalMacros = useMemo<MacroTotals>(() => {
-    const effectiveIngredients = ingredients.map((ingredient) => ({
-      ...ingredient,
-      partId: ingredient.partId ?? "legacy-main",
-    }));
-    const base = computePartAwareMacros(effectiveParts, effectiveIngredients).total;
+    const base = computePartAwareMacros(effectiveParts, ingredients).total;
     return {
       kcal: base.kcal * scale,
       protein: base.protein * scale,

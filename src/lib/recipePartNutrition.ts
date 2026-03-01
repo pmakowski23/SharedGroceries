@@ -17,7 +17,7 @@ export type RecipePartLike = {
 
 export type RecipeIngredientLike = {
   _id: string;
-  partId?: string;
+  partId: string;
   sourcePartId?: string;
   usedAmount?: number;
   usedUnit?: string;
@@ -79,7 +79,7 @@ export function computePartAwareMacros(
   }
 
   for (const ingredient of ingredients) {
-    if (!ingredient.partId || ingredient.sourcePartId) continue;
+    if (ingredient.sourcePartId) continue;
     const part = partById.get(ingredient.partId);
     if (!part) continue;
     prepByPartId[part._id] = add(
@@ -89,7 +89,6 @@ export function computePartAwareMacros(
   }
 
   for (const ingredient of ingredients) {
-    if (!ingredient.partId) continue;
     const consumerPart = partById.get(ingredient.partId);
     if (!consumerPart) continue;
     let contribution: MacroTotals | null = null;

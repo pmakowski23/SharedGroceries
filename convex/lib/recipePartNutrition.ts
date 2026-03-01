@@ -15,7 +15,7 @@ type RecipePartLike = {
 };
 
 type RecipeIngredientLike = {
-  partId?: string;
+  partId: string;
   sourcePartId?: string;
   usedAmount?: number;
   usedUnit?: string;
@@ -79,7 +79,6 @@ export function computeRecipePartMacros(
   }
 
   for (const ingredient of ingredients) {
-    if (!ingredient.partId) continue;
     if (ingredient.sourcePartId) continue;
     const part = partById.get(ingredient.partId);
     if (!part) continue;
@@ -94,7 +93,6 @@ export function computeRecipePartMacros(
   }
 
   for (const ingredient of ingredients) {
-    if (!ingredient.partId) continue;
     const consumerPart = partById.get(ingredient.partId);
     if (!consumerPart) continue;
 
