@@ -1,6 +1,66 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const mealTagValidator = v.union(
+  v.literal("Breakfast"),
+  v.literal("Lunch"),
+  v.literal("Dinner"),
+  v.literal("Snack"),
+);
+
+const ingredientSnapshotMassMacroValidator = v.object({
+  name: v.string(),
+  amount: v.number(),
+  unit: v.string(),
+  partSnapshotId: v.string(),
+  sourcePartSnapshotId: v.optional(v.string()),
+  usedAmount: v.optional(v.number()),
+  usedUnit: v.optional(v.string()),
+  kcalPer100: v.number(),
+  proteinPer100: v.number(),
+  carbsPer100: v.number(),
+  fatPer100: v.number(),
+});
+
+const ingredientSnapshotPerUnitMacroValidator = v.object({
+  name: v.string(),
+  amount: v.number(),
+  unit: v.string(),
+  partSnapshotId: v.string(),
+  sourcePartSnapshotId: v.optional(v.string()),
+  usedAmount: v.optional(v.number()),
+  usedUnit: v.optional(v.string()),
+  kcalPerUnit: v.number(),
+  proteinPerUnit: v.number(),
+  carbsPerUnit: v.number(),
+  fatPerUnit: v.number(),
+});
+
+const recipeVersionSnapshotValidator = v.object({
+  name: v.string(),
+  description: v.string(),
+  servings: v.number(),
+  instructions: v.array(v.string()),
+  mealTags: v.array(mealTagValidator),
+  parts: v.array(
+    v.object({
+      snapshotPartId: v.string(),
+      name: v.string(),
+      position: v.number(),
+      scale: v.number(),
+      yieldAmount: v.optional(v.number()),
+      yieldUnit: v.optional(v.string()),
+      instructions: v.array(v.string()),
+    }),
+  ),
+  ingredients: v.array(
+    v.union(
+      ingredientSnapshotMassMacroValidator,
+      ingredientSnapshotPerUnitMacroValidator,
+    ),
+  ),
+});
+
 const applicationTables = {
   groceryItems: defineTable({
     name: v.string(),
@@ -63,17 +123,24 @@ const applicationTables = {
     description: v.string(),
     servings: v.number(),
     instructions: v.array(v.string()),
+    currentVersionNumber: v.optional(v.number()),
+    latestVersionNumber: v.optional(v.number()),
     mealTags: v.optional(
       v.array(
-        v.union(
-          v.literal("Breakfast"),
-          v.literal("Lunch"),
-          v.literal("Dinner"),
-          v.literal("Snack")
-        )
+        mealTagValidator
       )
     ),
   }).searchIndex("search_name", { searchField: "name" }),
+
+  recipeVersions: defineTable({
+    recipeId: v.id("recipes"),
+    versionNumber: v.number(),
+    prompt: v.optional(v.string()),
+    createdAt: v.number(),
+    snapshot: recipeVersionSnapshotValidator,
+  })
+    .index("by_recipeId", ["recipeId"])
+    .index("by_recipeId_and_versionNumber", ["recipeId", "versionNumber"]),
 
   recipeParts: defineTable({
     recipeId: v.id("recipes"),

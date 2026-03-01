@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ingredientMacroRegenerationPrompt,
+  recipeEditPrompt,
   recipeGenerationPrompt,
   recipeRegenerationPromptForMissingItems,
 } from "./recipePrompts";
@@ -57,5 +58,43 @@ describe("recipe prompts macro shape contract", () => {
     expect(prompt).toContain("Missing instruction tokens/phases: toast buns");
     expect(prompt).toContain("Missing section/component headers: burger sauce");
     expect(prompt).toContain("Include \"to taste\" seasoning lines");
+  });
+
+  it("builds full-regeneration edit prompt with snapshot and user request", () => {
+    const prompt = recipeEditPrompt(
+      {
+        name: "Chicken Bowl",
+        description: "Simple bowl",
+        servings: 2,
+        mealTags: ["Dinner"],
+        instructions: ["Cook chicken", "Serve"],
+        parts: [
+          {
+            name: "Main",
+            position: 0,
+            scale: 1,
+            instructions: ["Cook"],
+            ingredients: [
+              {
+                name: "chicken breast",
+                amount: 200,
+                unit: "g",
+                kcalPer100: 165,
+                proteinPer100: 31,
+                carbsPer100: 0,
+                fatPer100: 3.6,
+              },
+            ],
+          },
+        ],
+      },
+      "add rice and make it spicy",
+      "",
+    );
+    expect(prompt).toContain("You are editing an existing recipe.");
+    expect(prompt).toContain("User edit request:");
+    expect(prompt).toContain("add rice and make it spicy");
+    expect(prompt).toContain("full regeneration, not a patch");
+    expect(prompt).toContain('Set mealTags using one or more from: Breakfast, Lunch, Dinner, Snack.');
   });
 });

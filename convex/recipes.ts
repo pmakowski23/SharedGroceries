@@ -5,6 +5,7 @@ import { Mistral } from "@mistralai/mistralai";
 import { Id } from "./_generated/dataModel";
 import {
   ingredientMacroRegenerationPrompt,
+  recipeEditPrompt,
   recipeGenerationPrompt,
   recipeRegenerationPromptForMissingItems,
 } from "./recipePrompts";
@@ -148,6 +149,76 @@ type RecipePartInput = {
   ingredients: IngredientInput[];
 };
 
+type RecipeDocument = {
+  _id: Id<"recipes">;
+  _creationTime: number;
+  name: string;
+  description: string;
+  servings: number;
+  instructions: Array<string>;
+  mealTags?: Array<string>;
+  currentVersionNumber?: number;
+  latestVersionNumber?: number;
+};
+
+type RecipeVersionSnapshotPart = {
+  snapshotPartId: string;
+  name: string;
+  position: number;
+  scale: number;
+  yieldAmount?: number;
+  yieldUnit?: string;
+  instructions: Array<string>;
+};
+
+type RecipeVersionSnapshotIngredient =
+  | {
+      name: string;
+      amount: number;
+      unit: string;
+      partSnapshotId: string;
+      sourcePartSnapshotId?: string;
+      usedAmount?: number;
+      usedUnit?: string;
+      kcalPer100: number;
+      proteinPer100: number;
+      carbsPer100: number;
+      fatPer100: number;
+    }
+  | {
+      name: string;
+      amount: number;
+      unit: string;
+      partSnapshotId: string;
+      sourcePartSnapshotId?: string;
+      usedAmount?: number;
+      usedUnit?: string;
+      kcalPerUnit: number;
+      proteinPerUnit: number;
+      carbsPerUnit: number;
+      fatPerUnit: number;
+    };
+
+type RecipeVersionSnapshot = {
+  name: string;
+  description: string;
+  servings: number;
+  instructions: Array<string>;
+  mealTags: Array<MealTag>;
+  parts: Array<RecipeVersionSnapshotPart>;
+  ingredients: Array<RecipeVersionSnapshotIngredient>;
+};
+
+type RecipeVersionDocument = {
+  _id: Id<"recipeVersions">;
+  _creationTime: number;
+  recipeId: Id<"recipes">;
+  versionNumber: number;
+  prompt?: string;
+  createdAt: number;
+  snapshot: RecipeVersionSnapshot;
+};
+
 const mealTagValidator = v.union(
   v.literal("Breakfast"),
   v.literal("Lunch"),
@@ -249,6 +320,49 @@ const ingredientDocumentValidator = v.union(
     ...ingredientPerUnitMacroFields,
   }),
 );
+
+const versionSnapshotPartValidator = v.object({
+  snapshotPartId: v.string(),
+  name: v.string(),
+  position: v.number(),
+  scale: v.number(),
+  yieldAmount: v.optional(v.number()),
+  yieldUnit: v.optional(v.string()),
+  instructions: v.array(v.string()),
+});
+
+const versionSnapshotIngredientValidator = v.union(
+  v.object({
+    name: v.string(),
+    amount: v.number(),
+    unit: v.string(),
+    partSnapshotId: v.string(),
+    sourcePartSnapshotId: v.optional(v.string()),
+    usedAmount: v.optional(v.number()),
+    usedUnit: v.optional(v.string()),
+    ...ingredientMassMacroFields,
+  }),
+  v.object({
+    name: v.string(),
+    amount: v.number(),
+    unit: v.string(),
+    partSnapshotId: v.string(),
+    sourcePartSnapshotId: v.optional(v.string()),
+    usedAmount: v.optional(v.number()),
+    usedUnit: v.optional(v.string()),
+    ...ingredientPerUnitMacroFields,
+  }),
+);
+
+const recipeVersionSnapshotValidator = v.object({
+  name: v.string(),
+  description: v.string(),
+  servings: v.number(),
+  instructions: v.array(v.string()),
+  mealTags: v.array(mealTagValidator),
+  parts: v.array(versionSnapshotPartValidator),
+  ingredients: v.array(versionSnapshotIngredientValidator),
+});
 
 function toMacroUpdate(input: IngredientInput): IngredientMacroUpdate {
   if ("kcalPer100" in input) {
@@ -603,6 +717,339 @@ function computeTotalRecipeKcal(
   ).total.kcal;
 }
 
+function getRecipeVersionCounters(recipe: RecipeDocument): {
+  currentVersionNumber: number;
+  latestVersionNumber: number;
+} {
+  const current = recipe.currentVersionNumber ?? 1;
+  const latest = recipe.latestVersionNumber ?? current;
+  return {
+    currentVersionNumber: Math.max(1, current),
+    latestVersionNumber: Math.max(1, latest, current),
+  };
+}
+
+function getNormalizedRecipeMealTags(recipe: {
+  name: string;
+  description: string;
+  mealTags?: Array<string>;
+}): Array<MealTag> {
+  const normalizedMealTags = sanitizeMealTags(recipe.mealTags);
+  if (normalizedMealTags.length > 0) {
+    return normalizedMealTags;
+  }
+  return inferMealTagsFromText(`${recipe.name} ${recipe.description}`);
+}
+
+async function getVersionByNumber(
+  ctx: any,
+  recipeId: Id<"recipes">,
+  versionNumber: number,
+): Promise<RecipeVersionDocument | null> {
+  const version = await ctx.db
+    .query("recipeVersions")
+    .withIndex("by_recipeId_and_versionNumber", (q: any) =>
+      q.eq("recipeId", recipeId).eq("versionNumber", versionNumber),
+    )
+    .first();
+  return (version as RecipeVersionDocument | null) ?? null;
+}
+
+async function captureRecipeSnapshot(
+  ctx: any,
+  recipeId: Id<"recipes">,
+): Promise<RecipeVersionSnapshot> {
+  const recipe = (await ctx.db.get(recipeId)) as RecipeDocument | null;
+  if (!recipe) {
+    throw new Error("Recipe not found");
+  }
+
+  const parts = await getRecipeParts(ctx, recipeId);
+  const ingredients = await ctx.db
+    .query("recipeIngredients")
+    .withIndex("by_recipeId", (q: any) => q.eq("recipeId", recipeId))
+    .collect();
+  const normalizedIngredients = ingredients.map((ingredient: any) =>
+    normalizeIngredientDocument(ingredient as IngredientDocument),
+  );
+
+  const partSnapshotIdByPartId = new Map<Id<"recipeParts">, string>();
+  const snapshotParts = parts.map((part, index) => {
+    const snapshotPartId = `part-${index + 1}`;
+    partSnapshotIdByPartId.set(part._id, snapshotPartId);
+    return {
+      snapshotPartId,
+      name: part.name,
+      position: part.position,
+      scale: part.scale,
+      yieldAmount: part.yieldAmount,
+      yieldUnit: part.yieldUnit,
+      instructions: part.instructions ?? [],
+    };
+  });
+
+  const snapshotIngredients = normalizedIngredients.map(
+    (ingredient: IngredientDocument) => {
+      const partSnapshotId = partSnapshotIdByPartId.get(ingredient.partId);
+      if (!partSnapshotId) {
+        throw new Error("Ingredient part mapping missing while capturing version");
+      }
+      const sourcePartSnapshotId = ingredient.sourcePartId
+        ? partSnapshotIdByPartId.get(ingredient.sourcePartId)
+        : undefined;
+      if ("kcalPer100" in ingredient) {
+        return {
+          name: ingredient.name,
+          amount: ingredient.amount,
+          unit: normalizeUnitShortName(ingredient.unit),
+          partSnapshotId,
+          sourcePartSnapshotId,
+          usedAmount: ingredient.usedAmount,
+          usedUnit: ingredient.usedUnit
+            ? normalizeUnitShortName(ingredient.usedUnit)
+            : undefined,
+          kcalPer100: ingredient.kcalPer100,
+          proteinPer100: ingredient.proteinPer100,
+          carbsPer100: ingredient.carbsPer100,
+          fatPer100: ingredient.fatPer100,
+        };
+      }
+      return {
+        name: ingredient.name,
+        amount: ingredient.amount,
+        unit: normalizeUnitShortName(ingredient.unit),
+        partSnapshotId,
+        sourcePartSnapshotId,
+        usedAmount: ingredient.usedAmount,
+        usedUnit: ingredient.usedUnit
+          ? normalizeUnitShortName(ingredient.usedUnit)
+          : undefined,
+        kcalPerUnit: ingredient.kcalPerUnit,
+        proteinPerUnit: ingredient.proteinPerUnit,
+        carbsPerUnit: ingredient.carbsPerUnit,
+        fatPerUnit: ingredient.fatPerUnit,
+      };
+    },
+  );
+
+  return {
+    name: recipe.name,
+    description: recipe.description,
+    servings: recipe.servings,
+    instructions: recipe.instructions,
+    mealTags: getNormalizedRecipeMealTags(recipe),
+    parts: snapshotParts,
+    ingredients: snapshotIngredients,
+  };
+}
+
+async function restoreRecipeFromSnapshot(
+  ctx: any,
+  recipeId: Id<"recipes">,
+  snapshot: RecipeVersionSnapshot,
+): Promise<void> {
+  const recipe = (await ctx.db.get(recipeId)) as RecipeDocument | null;
+  if (!recipe) {
+    throw new Error("Recipe not found");
+  }
+
+  const mealTags = getNormalizedRecipeMealTags({
+    name: snapshot.name,
+    description: snapshot.description,
+    mealTags: snapshot.mealTags,
+  });
+
+  await ctx.db.patch(recipeId, {
+    name: snapshot.name,
+    description: snapshot.description,
+    servings: Math.max(1, Math.round(snapshot.servings)),
+    instructions: snapshot.instructions,
+    mealTags,
+  });
+
+  const currentIngredients = await ctx.db
+    .query("recipeIngredients")
+    .withIndex("by_recipeId", (q: any) => q.eq("recipeId", recipeId))
+    .collect();
+  const currentParts = await ctx.db
+    .query("recipeParts")
+    .withIndex("by_recipeId", (q: any) => q.eq("recipeId", recipeId))
+    .collect();
+  for (const ingredient of currentIngredients) {
+    await ctx.db.delete(ingredient._id);
+  }
+  for (const part of currentParts) {
+    await ctx.db.delete(part._id);
+  }
+
+  const partIdBySnapshotPartId = new Map<string, Id<"recipeParts">>();
+  const orderedParts = [...snapshot.parts].sort((a, b) => a.position - b.position);
+  for (const part of orderedParts) {
+    const partId = await ctx.db.insert("recipeParts", {
+      recipeId,
+      name: part.name,
+      position: part.position,
+      scale: part.scale,
+      yieldAmount: part.yieldAmount,
+      yieldUnit: part.yieldUnit ? normalizeUnitShortName(part.yieldUnit) : undefined,
+      instructions: part.instructions ?? [],
+    });
+    partIdBySnapshotPartId.set(part.snapshotPartId, partId);
+  }
+
+  for (const ingredient of snapshot.ingredients) {
+    const partId = partIdBySnapshotPartId.get(ingredient.partSnapshotId);
+    if (!partId) {
+      throw new Error("Snapshot ingredient references missing part");
+    }
+    const sourcePartId = ingredient.sourcePartSnapshotId
+      ? partIdBySnapshotPartId.get(ingredient.sourcePartSnapshotId)
+      : undefined;
+
+    if ("kcalPer100" in ingredient) {
+      await ctx.db.insert("recipeIngredients", {
+        recipeId,
+        partId,
+        sourcePartId,
+        usedAmount: sourcePartId ? ingredient.usedAmount : undefined,
+        usedUnit:
+          sourcePartId && ingredient.usedUnit
+            ? normalizeUnitShortName(ingredient.usedUnit)
+            : undefined,
+        name: ingredient.name,
+        amount: ingredient.amount,
+        unit: normalizeUnitShortName(ingredient.unit),
+        kcalPer100: ingredient.kcalPer100,
+        proteinPer100: ingredient.proteinPer100,
+        carbsPer100: ingredient.carbsPer100,
+        fatPer100: ingredient.fatPer100,
+      });
+      continue;
+    }
+
+    await ctx.db.insert("recipeIngredients", {
+      recipeId,
+      partId,
+      sourcePartId,
+      usedAmount: sourcePartId ? ingredient.usedAmount : undefined,
+      usedUnit:
+        sourcePartId && ingredient.usedUnit
+          ? normalizeUnitShortName(ingredient.usedUnit)
+          : undefined,
+      name: ingredient.name,
+      amount: ingredient.amount,
+      unit: normalizeUnitShortName(ingredient.unit),
+      kcalPerUnit: ingredient.kcalPerUnit,
+      proteinPerUnit: ingredient.proteinPerUnit,
+      carbsPerUnit: ingredient.carbsPerUnit,
+      fatPerUnit: ingredient.fatPerUnit,
+    });
+  }
+}
+
+async function upsertRecipeVersion(
+  ctx: any,
+  args: {
+    recipeId: Id<"recipes">;
+    versionNumber: number;
+    prompt?: string;
+    snapshot: RecipeVersionSnapshot;
+  },
+): Promise<void> {
+  const existing = await getVersionByNumber(
+    ctx,
+    args.recipeId,
+    args.versionNumber,
+  );
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      prompt: args.prompt ?? existing.prompt,
+      createdAt: Date.now(),
+      snapshot: args.snapshot,
+    });
+    return;
+  }
+  await ctx.db.insert("recipeVersions", {
+    recipeId: args.recipeId,
+    versionNumber: args.versionNumber,
+    prompt: args.prompt,
+    createdAt: Date.now(),
+    snapshot: args.snapshot,
+  });
+}
+
+async function ensureVersioningInitializedInternal(
+  ctx: any,
+  recipeId: Id<"recipes">,
+): Promise<{ currentVersionNumber: number; latestVersionNumber: number }> {
+  const recipe = (await ctx.db.get(recipeId)) as RecipeDocument | null;
+  if (!recipe) {
+    throw new Error("Recipe not found");
+  }
+  const counters = getRecipeVersionCounters(recipe);
+
+  let shouldPatchRecipeCounters =
+    recipe.currentVersionNumber === undefined ||
+    recipe.latestVersionNumber === undefined;
+
+  const existingV1 = await getVersionByNumber(ctx, recipeId, 1);
+  if (!existingV1) {
+    const snapshot = await captureRecipeSnapshot(ctx, recipeId);
+    await upsertRecipeVersion(ctx, {
+      recipeId,
+      versionNumber: 1,
+      snapshot,
+      prompt: undefined,
+    });
+  }
+
+  if (shouldPatchRecipeCounters) {
+    await ctx.db.patch(recipeId, {
+      currentVersionNumber: counters.currentVersionNumber,
+      latestVersionNumber: counters.latestVersionNumber,
+    });
+  }
+
+  return counters;
+}
+
+async function syncCurrentRecipeVersionSnapshot(
+  ctx: any,
+  recipeId: Id<"recipes">,
+): Promise<void> {
+  const recipe = (await ctx.db.get(recipeId)) as RecipeDocument | null;
+  if (!recipe) return;
+  const counters = await ensureVersioningInitializedInternal(ctx, recipeId);
+  const snapshot = await captureRecipeSnapshot(ctx, recipeId);
+  const existing = await getVersionByNumber(
+    ctx,
+    recipeId,
+    counters.currentVersionNumber,
+  );
+  await upsertRecipeVersion(ctx, {
+    recipeId,
+    versionNumber: counters.currentVersionNumber,
+    prompt: existing?.prompt,
+    snapshot,
+  });
+}
+
+async function deleteFutureVersions(
+  ctx: any,
+  recipeId: Id<"recipes">,
+  fromVersionExclusive: number,
+): Promise<void> {
+  const versions = await ctx.db
+    .query("recipeVersions")
+    .withIndex("by_recipeId", (q: any) => q.eq("recipeId", recipeId))
+    .collect();
+  for (const version of versions) {
+    if (version.versionNumber > fromVersionExclusive) {
+      await ctx.db.delete(version._id);
+    }
+  }
+}
+
 export const list = query({
   args: {},
   returns: v.array(
@@ -614,20 +1061,20 @@ export const list = query({
       servings: v.number(),
       instructions: v.array(v.string()),
       mealTags: v.array(mealTagValidator),
+      currentVersionNumber: v.number(),
+      latestVersionNumber: v.number(),
       totalKcal: v.number(),
     }),
   ),
   handler: async (ctx) => {
-    const recipes = await ctx.db.query("recipes").order("desc").collect();
+    const recipes = (await ctx.db
+      .query("recipes")
+      .order("desc")
+      .collect()) as Array<RecipeDocument>;
     const result = [];
     for (const recipe of recipes) {
-      const persistedMealTags = (recipe as { mealTags?: Array<string> })
-        .mealTags;
-      const normalizedMealTags = sanitizeMealTags(persistedMealTags);
-      const mealTags =
-        normalizedMealTags.length > 0
-          ? normalizedMealTags
-          : inferMealTagsFromText(`${recipe.name} ${recipe.description}`);
+      const mealTags = getNormalizedRecipeMealTags(recipe);
+      const versionCounters = getRecipeVersionCounters(recipe);
       const ingredients = await ctx.db
         .query("recipeIngredients")
         .withIndex("by_recipeId", (q) => q.eq("recipeId", recipe._id))
@@ -637,7 +1084,18 @@ export const list = query({
         normalizeIngredientDocument(ingredient as IngredientDocument),
       );
       const totalKcal = computeTotalRecipeKcal(parts, normalizedIngredients);
-      result.push({ ...recipe, mealTags, totalKcal: Math.round(totalKcal) });
+      result.push({
+        _id: recipe._id,
+        _creationTime: recipe._creationTime,
+        name: recipe.name,
+        description: recipe.description,
+        servings: recipe.servings,
+        instructions: recipe.instructions,
+        mealTags,
+        currentVersionNumber: versionCounters.currentVersionNumber,
+        latestVersionNumber: versionCounters.latestVersionNumber,
+        totalKcal: Math.round(totalKcal),
+      });
     }
     return result;
   },
@@ -654,21 +1112,189 @@ export const get = query({
       servings: v.number(),
       instructions: v.array(v.string()),
       mealTags: v.array(mealTagValidator),
+      currentVersionNumber: v.number(),
+      latestVersionNumber: v.number(),
     }),
     v.null(),
   ),
   handler: async (ctx, args) => {
-    const recipe = await ctx.db.get(args.recipeId);
+    const recipe = (await ctx.db.get(args.recipeId)) as RecipeDocument | null;
     if (!recipe) {
       return null;
     }
-    const persistedMealTags = (recipe as { mealTags?: Array<string> }).mealTags;
-    const normalizedMealTags = sanitizeMealTags(persistedMealTags);
-    const mealTags =
-      normalizedMealTags.length > 0
-        ? normalizedMealTags
-        : inferMealTagsFromText(`${recipe.name} ${recipe.description}`);
-    return { ...recipe, mealTags };
+    const mealTags = getNormalizedRecipeMealTags(recipe);
+    const versionCounters = getRecipeVersionCounters(recipe);
+    return {
+      _id: recipe._id,
+      _creationTime: recipe._creationTime,
+      name: recipe.name,
+      description: recipe.description,
+      servings: recipe.servings,
+      instructions: recipe.instructions,
+      mealTags,
+      currentVersionNumber: versionCounters.currentVersionNumber,
+      latestVersionNumber: versionCounters.latestVersionNumber,
+    };
+  },
+});
+
+export const getVersions = query({
+  args: { recipeId: v.id("recipes") },
+  returns: v.array(
+    v.object({
+      _id: v.id("recipeVersions"),
+      _creationTime: v.number(),
+      recipeId: v.id("recipes"),
+      versionNumber: v.number(),
+      prompt: v.optional(v.string()),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const versions = (await ctx.db
+      .query("recipeVersions")
+      .withIndex("by_recipeId", (q) => q.eq("recipeId", args.recipeId))
+      .collect()) as Array<RecipeVersionDocument>;
+    return versions
+      .sort((a, b) => b.versionNumber - a.versionNumber)
+      .map((version) => ({
+        _id: version._id,
+        _creationTime: version._creationTime,
+        recipeId: version.recipeId,
+        versionNumber: version.versionNumber,
+        prompt: version.prompt,
+        createdAt: version.createdAt,
+      }));
+  },
+});
+
+export const getVersionSnapshot = query({
+  args: {
+    recipeId: v.id("recipes"),
+    versionNumber: v.number(),
+  },
+  returns: v.union(
+    v.object({
+      _id: v.id("recipeVersions"),
+      versionNumber: v.number(),
+      prompt: v.optional(v.string()),
+      snapshot: recipeVersionSnapshotValidator,
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const version = await getVersionByNumber(
+      ctx,
+      args.recipeId,
+      args.versionNumber,
+    );
+    if (!version) {
+      return null;
+    }
+    return {
+      _id: version._id,
+      versionNumber: version.versionNumber,
+      prompt: version.prompt,
+      snapshot: version.snapshot,
+    };
+  },
+});
+
+export const ensureVersioningInitialized = mutation({
+  args: { recipeId: v.id("recipes") },
+  returns: v.object({
+    currentVersionNumber: v.number(),
+    latestVersionNumber: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    return await ensureVersioningInitializedInternal(ctx, args.recipeId);
+  },
+});
+
+export const selectVersion = mutation({
+  args: {
+    recipeId: v.id("recipes"),
+    versionNumber: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const counters = await ensureVersioningInitializedInternal(ctx, args.recipeId);
+    if (
+      !Number.isFinite(args.versionNumber) ||
+      args.versionNumber < 1 ||
+      args.versionNumber > counters.latestVersionNumber
+    ) {
+      throw new Error("Invalid recipe version");
+    }
+    const version = await getVersionByNumber(ctx, args.recipeId, args.versionNumber);
+    if (!version) {
+      throw new Error("Recipe version not found");
+    }
+
+    await restoreRecipeFromSnapshot(ctx, args.recipeId, version.snapshot);
+    await ctx.db.patch(args.recipeId, {
+      currentVersionNumber: args.versionNumber,
+      latestVersionNumber: counters.latestVersionNumber,
+    });
+    return null;
+  },
+});
+
+export const commitEditedVersion = mutation({
+  args: {
+    recipeId: v.id("recipes"),
+    baseVersionNumber: v.number(),
+    prompt: v.string(),
+    allowReplaceFutureVersions: v.boolean(),
+    snapshot: recipeVersionSnapshotValidator,
+  },
+  returns: v.object({
+    versionNumber: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const counters = await ensureVersioningInitializedInternal(ctx, args.recipeId);
+    const baseVersionNumber = Math.round(args.baseVersionNumber);
+    if (
+      !Number.isFinite(baseVersionNumber) ||
+      baseVersionNumber < 1 ||
+      baseVersionNumber > counters.latestVersionNumber
+    ) {
+      throw new Error("Invalid base version number");
+    }
+    const baseVersion = await getVersionByNumber(
+      ctx,
+      args.recipeId,
+      baseVersionNumber,
+    );
+    if (!baseVersion) {
+      throw new Error("Base recipe version not found");
+    }
+
+    if (
+      baseVersionNumber < counters.latestVersionNumber &&
+      !args.allowReplaceFutureVersions
+    ) {
+      throw new Error("REPLACE_FUTURE_VERSIONS_REQUIRED");
+    }
+
+    if (baseVersionNumber < counters.latestVersionNumber) {
+      await deleteFutureVersions(ctx, args.recipeId, baseVersionNumber);
+    }
+
+    const nextVersionNumber = baseVersionNumber + 1;
+    await upsertRecipeVersion(ctx, {
+      recipeId: args.recipeId,
+      versionNumber: nextVersionNumber,
+      prompt: args.prompt,
+      snapshot: args.snapshot,
+    });
+    await restoreRecipeFromSnapshot(ctx, args.recipeId, args.snapshot);
+    await ctx.db.patch(args.recipeId, {
+      currentVersionNumber: nextVersionNumber,
+      latestVersionNumber: nextVersionNumber,
+    });
+
+    return { versionNumber: nextVersionNumber };
   },
 });
 
@@ -728,6 +1354,8 @@ export const create = mutation({
       servings: args.servings,
       instructions: args.instructions,
       mealTags,
+      currentVersionNumber: 1,
+      latestVersionNumber: 1,
     });
     const partIdByName = new Map<string, Id<"recipeParts">>();
     if (args.parts && args.parts.length > 0) {
@@ -775,6 +1403,13 @@ export const create = mutation({
         });
       }
     }
+    const initialSnapshot = await captureRecipeSnapshot(ctx, recipeId);
+    await upsertRecipeVersion(ctx, {
+      recipeId,
+      versionNumber: 1,
+      prompt: undefined,
+      snapshot: initialSnapshot,
+    });
     return recipeId;
   },
 });
@@ -789,6 +1424,7 @@ export const updateMealTags = mutation({
     await ctx.db.patch(args.recipeId, {
       mealTags: sanitizeMealTags(args.mealTags),
     });
+    await syncCurrentRecipeVersionSnapshot(ctx, args.recipeId);
     return null;
   },
 });
@@ -830,6 +1466,7 @@ export const updateIngredientMacros = mutation({
       unit,
       ...args.macros,
     });
+    await syncCurrentRecipeVersionSnapshot(ctx, normalizedExisting.recipeId);
     return null;
   },
 });
@@ -844,9 +1481,15 @@ export const updateIngredientAmount = mutation({
     if (!Number.isFinite(args.amount) || args.amount <= 0) {
       throw new Error("Amount must be a positive number");
     }
+    const existing = await ctx.db.get(args.ingredientId);
+    if (!existing) {
+      throw new Error("Ingredient not found");
+    }
+    const recipeId = existing.recipeId as Id<"recipes">;
     await ctx.db.patch(args.ingredientId, {
       amount: args.amount,
     });
+    await syncCurrentRecipeVersionSnapshot(ctx, recipeId);
     return null;
   },
 });
@@ -863,7 +1506,7 @@ export const createPart = mutation({
   },
   returns: v.id("recipeParts"),
   handler: async (ctx, args) => {
-    return await ctx.db.insert("recipeParts", {
+    const partId = await ctx.db.insert("recipeParts", {
       recipeId: args.recipeId,
       name: args.name,
       position: args.position,
@@ -872,6 +1515,8 @@ export const createPart = mutation({
       yieldUnit: args.yieldUnit ? normalizeUnitShortName(args.yieldUnit) : undefined,
       instructions: args.instructions ?? [],
     });
+    await syncCurrentRecipeVersionSnapshot(ctx, args.recipeId);
+    return partId;
   },
 });
 
@@ -901,6 +1546,7 @@ export const updatePart = mutation({
         : {}),
       ...(args.instructions !== undefined ? { instructions: args.instructions } : {}),
     });
+    await syncCurrentRecipeVersionSnapshot(ctx, existing.recipeId as Id<"recipes">);
     return null;
   },
 });
@@ -934,6 +1580,7 @@ export const deletePart = mutation({
       });
     }
     await ctx.db.delete(part._id);
+    await syncCurrentRecipeVersionSnapshot(ctx, part.recipeId as Id<"recipes">);
     return null;
   },
 });
@@ -985,6 +1632,7 @@ export const updateIngredientPartUsage = mutation({
           ? normalizeUnitShortName(args.usedUnit)
           : undefined,
     });
+    await syncCurrentRecipeVersionSnapshot(ctx, recipeId);
     return null;
   },
 });
@@ -1027,11 +1675,18 @@ export const remove = mutation({
       .query("recipeParts")
       .withIndex("by_recipeId", (q) => q.eq("recipeId", args.recipeId))
       .collect();
+    const versions = await ctx.db
+      .query("recipeVersions")
+      .withIndex("by_recipeId", (q) => q.eq("recipeId", args.recipeId))
+      .collect();
     for (const ing of ingredients) {
       await ctx.db.delete(ing._id);
     }
     for (const part of parts) {
       await ctx.db.delete(part._id);
+    }
+    for (const version of versions) {
+      await ctx.db.delete(version._id);
     }
     await ctx.db.delete(args.recipeId);
     return null;
@@ -1092,6 +1747,245 @@ interface GeneratedRecipe {
   instructions: string[];
   ingredients?: GeneratedIngredient[];
   parts?: GeneratedRecipePart[];
+}
+
+function normalizeGeneratedRecipeParts(
+  generatedRecipe: GeneratedRecipe,
+  logContext: "generate" | "edit",
+): Array<RecipePartInput> {
+  const generatedParts: Array<GeneratedRecipePart> =
+    generatedRecipe.parts && generatedRecipe.parts.length > 0
+      ? generatedRecipe.parts
+      : [
+          {
+            name: "Main",
+            position: 0,
+            scale: 1,
+            instructions: generatedRecipe.instructions,
+            ingredients: generatedRecipe.ingredients ?? [],
+          },
+        ];
+
+  return generatedParts.map((part) => {
+    const normalizedIngredients = part.ingredients.map((ingredient) =>
+      normalizeAndScaleIngredientMacros(toIngredientInputFromGenerated(ingredient)),
+    );
+    part.ingredients.forEach((ingredient, index) => {
+      const normalized = normalizedIngredients[index];
+      if (normalized.correctionFactor > 1) {
+        console.log(
+          `[recipes.${logContext}] Auto-scaled macros by x${normalized.correctionFactor} for ingredient "${ingredient.name}" (${ingredient.unit}).`,
+        );
+      }
+      if (normalized.kcalWasRepaired) {
+        console.log(
+          `[recipes.${logContext}] Repaired kcal from macros for ingredient "${ingredient.name}" (${ingredient.unit}).`,
+        );
+      }
+    });
+
+    return {
+      name: part.name,
+      position: part.position,
+      scale: part.scale,
+      yieldAmount: part.yieldAmount,
+      yieldUnit: part.yieldUnit,
+      instructions: part.instructions,
+      ingredients: part.ingredients.map((ingredient, index) => {
+        const normalized = normalizedIngredients[index];
+        if ("kcalPer100" in normalized) {
+          return {
+            name: ingredient.name,
+            amount: ingredient.amount,
+            unit: normalizeUnitShortName(ingredient.unit),
+            sourcePartName: ingredient.sourcePartName,
+            usedAmount: ingredient.usedAmount,
+            usedUnit: ingredient.usedUnit,
+            kcalPer100: normalized.kcalPer100,
+            proteinPer100: normalized.proteinPer100,
+            carbsPer100: normalized.carbsPer100,
+            fatPer100: normalized.fatPer100,
+          };
+        }
+        return {
+          name: ingredient.name,
+          amount: ingredient.amount,
+          unit: normalizeUnitShortName(ingredient.unit),
+          sourcePartName: ingredient.sourcePartName,
+          usedAmount: ingredient.usedAmount,
+          usedUnit: ingredient.usedUnit,
+          kcalPerUnit: normalized.kcalPerUnit,
+          proteinPerUnit: normalized.proteinPerUnit,
+          carbsPerUnit: normalized.carbsPerUnit,
+          fatPerUnit: normalized.fatPerUnit,
+        };
+      }),
+    };
+  });
+}
+
+function snapshotToPromptRecipe(
+  snapshot: RecipeVersionSnapshot,
+): {
+  name: string;
+  description: string;
+  servings: number;
+  mealTags: Array<string>;
+  instructions: Array<string>;
+  parts: Array<{
+    name: string;
+    position: number;
+    scale: number;
+    yieldAmount?: number;
+    yieldUnit?: string;
+    instructions: Array<string>;
+    ingredients: Array<IngredientInput>;
+  }>;
+} {
+  const partNameBySnapshotId = new Map<string, string>();
+  for (const part of snapshot.parts) {
+    partNameBySnapshotId.set(part.snapshotPartId, part.name);
+  }
+
+  const parts = snapshot.parts.map((part) => {
+    const ingredients = snapshot.ingredients
+      .filter((ingredient) => ingredient.partSnapshotId === part.snapshotPartId)
+      .map((ingredient) => {
+        if ("kcalPer100" in ingredient) {
+          return {
+            name: ingredient.name,
+            amount: ingredient.amount,
+            unit: ingredient.unit,
+            sourcePartName: ingredient.sourcePartSnapshotId
+              ? partNameBySnapshotId.get(ingredient.sourcePartSnapshotId)
+              : undefined,
+            usedAmount: ingredient.usedAmount,
+            usedUnit: ingredient.usedUnit,
+            kcalPer100: ingredient.kcalPer100,
+            proteinPer100: ingredient.proteinPer100,
+            carbsPer100: ingredient.carbsPer100,
+            fatPer100: ingredient.fatPer100,
+          };
+        }
+        return {
+          name: ingredient.name,
+          amount: ingredient.amount,
+          unit: ingredient.unit,
+          sourcePartName: ingredient.sourcePartSnapshotId
+            ? partNameBySnapshotId.get(ingredient.sourcePartSnapshotId)
+            : undefined,
+          usedAmount: ingredient.usedAmount,
+          usedUnit: ingredient.usedUnit,
+          kcalPerUnit: ingredient.kcalPerUnit,
+          proteinPerUnit: ingredient.proteinPerUnit,
+          carbsPerUnit: ingredient.carbsPerUnit,
+          fatPerUnit: ingredient.fatPerUnit,
+        };
+      });
+
+    return {
+      name: part.name,
+      position: part.position,
+      scale: part.scale,
+      yieldAmount: part.yieldAmount,
+      yieldUnit: part.yieldUnit,
+      instructions: part.instructions,
+      ingredients,
+    };
+  });
+
+  return {
+    name: snapshot.name,
+    description: snapshot.description,
+    servings: snapshot.servings,
+    mealTags: snapshot.mealTags,
+    instructions: snapshot.instructions,
+    parts,
+  };
+}
+
+function buildSnapshotFromGeneratedRecipe(
+  generatedRecipe: GeneratedRecipe,
+  normalizedParts: Array<RecipePartInput>,
+): RecipeVersionSnapshot {
+  const orderedParts = [...normalizedParts].sort((a, b) => a.position - b.position);
+  const partSnapshotIdByName = new Map<string, string>();
+  const snapshotParts = orderedParts.map((part, index) => {
+    const snapshotPartId = `part-${index + 1}`;
+    partSnapshotIdByName.set(part.name.toLowerCase(), snapshotPartId);
+    return {
+      snapshotPartId,
+      name: part.name,
+      position: part.position,
+      scale: part.scale ?? 1,
+      yieldAmount: part.yieldAmount,
+      yieldUnit: part.yieldUnit ? normalizeUnitShortName(part.yieldUnit) : undefined,
+      instructions: part.instructions ?? [],
+    };
+  });
+
+  const snapshotIngredients: Array<RecipeVersionSnapshotIngredient> = [];
+  for (const part of orderedParts) {
+    const partSnapshotId = partSnapshotIdByName.get(part.name.toLowerCase());
+    if (!partSnapshotId) {
+      throw new Error("Failed to build recipe version snapshot");
+    }
+    for (const ingredient of part.ingredients) {
+      const sourcePartSnapshotId = ingredient.sourcePartName
+        ? partSnapshotIdByName.get(ingredient.sourcePartName.toLowerCase())
+        : undefined;
+      if ("kcalPer100" in ingredient) {
+        snapshotIngredients.push({
+          name: ingredient.name,
+          amount: ingredient.amount,
+          unit: normalizeUnitShortName(ingredient.unit),
+          partSnapshotId,
+          sourcePartSnapshotId,
+          usedAmount: ingredient.usedAmount,
+          usedUnit: ingredient.usedUnit
+            ? normalizeUnitShortName(ingredient.usedUnit)
+            : undefined,
+          kcalPer100: ingredient.kcalPer100,
+          proteinPer100: ingredient.proteinPer100,
+          carbsPer100: ingredient.carbsPer100,
+          fatPer100: ingredient.fatPer100,
+        });
+      } else {
+        snapshotIngredients.push({
+          name: ingredient.name,
+          amount: ingredient.amount,
+          unit: normalizeUnitShortName(ingredient.unit),
+          partSnapshotId,
+          sourcePartSnapshotId,
+          usedAmount: ingredient.usedAmount,
+          usedUnit: ingredient.usedUnit
+            ? normalizeUnitShortName(ingredient.usedUnit)
+            : undefined,
+          kcalPerUnit: ingredient.kcalPerUnit,
+          proteinPerUnit: ingredient.proteinPerUnit,
+          carbsPerUnit: ingredient.carbsPerUnit,
+          fatPerUnit: ingredient.fatPerUnit,
+        });
+      }
+    }
+  }
+
+  return {
+    name: generatedRecipe.name,
+    description: generatedRecipe.description,
+    servings: Math.max(1, Math.round(generatedRecipe.servings)),
+    instructions: generatedRecipe.instructions,
+    mealTags: (() => {
+      const aiMealTags = sanitizeMealTags(generatedRecipe.mealTags);
+      return aiMealTags.length > 0
+        ? aiMealTags
+        : inferMealTagsFromText(
+            `${generatedRecipe.name} ${generatedRecipe.description}`,
+          );
+    })(),
+    parts: snapshotParts,
+    ingredients: snapshotIngredients,
+  };
 }
 
 async function requestRecipeJsonFromModel(
@@ -1213,69 +2107,7 @@ export const generate = action({
         parsed = secondAttempt.parsed;
       }
     }
-    const generatedParts: Array<GeneratedRecipePart> =
-      parsed.parts && parsed.parts.length > 0
-        ? parsed.parts
-        : [
-            {
-              name: "Main",
-              position: 0,
-              scale: 1,
-              instructions: parsed.instructions,
-              ingredients: parsed.ingredients ?? [],
-            },
-          ];
-
-    const normalizedParts = generatedParts.map((part) => {
-      const normalizedIngredients = part.ingredients.map((ingredient) =>
-        normalizeAndScaleIngredientMacros(toIngredientInputFromGenerated(ingredient)),
-      );
-      part.ingredients.forEach((ingredient, index) => {
-        const normalized = normalizedIngredients[index];
-        if (normalized.correctionFactor > 1) {
-          console.log(
-            `[recipes.generate] Auto-scaled macros by x${normalized.correctionFactor} for ingredient "${ingredient.name}" (${ingredient.unit}).`,
-          );
-        }
-        if (normalized.kcalWasRepaired) {
-          console.log(
-            `[recipes.generate] Repaired kcal from macros for ingredient "${ingredient.name}" (${ingredient.unit}).`,
-          );
-        }
-      });
-      return {
-        ...part,
-        ingredients: part.ingredients.map((ingredient, index) => {
-          const normalized = normalizedIngredients[index];
-          if ("kcalPer100" in normalized) {
-            return {
-              name: ingredient.name,
-              amount: ingredient.amount,
-              unit: normalizeUnitShortName(ingredient.unit),
-              sourcePartName: ingredient.sourcePartName,
-              usedAmount: ingredient.usedAmount,
-              usedUnit: ingredient.usedUnit,
-              kcalPer100: normalized.kcalPer100,
-              proteinPer100: normalized.proteinPer100,
-              carbsPer100: normalized.carbsPer100,
-              fatPer100: normalized.fatPer100,
-            };
-          }
-          return {
-            name: ingredient.name,
-            amount: ingredient.amount,
-            unit: normalizeUnitShortName(ingredient.unit),
-            sourcePartName: ingredient.sourcePartName,
-            usedAmount: ingredient.usedAmount,
-            usedUnit: ingredient.usedUnit,
-            kcalPerUnit: normalized.kcalPerUnit,
-            proteinPerUnit: normalized.proteinPerUnit,
-            carbsPerUnit: normalized.carbsPerUnit,
-            fatPerUnit: normalized.fatPerUnit,
-          };
-        }),
-      };
-    });
+    const normalizedParts = normalizeGeneratedRecipeParts(parsed, "generate");
 
     const recipeId: Id<"recipes"> = await ctx.runMutation(api.recipes.create, {
       name: parsed.name,
@@ -1299,6 +2131,103 @@ export const generate = action({
       };
     }
     return recipeId;
+  },
+});
+
+export const editWithPrompt = action({
+  args: {
+    recipeId: v.id("recipes"),
+    baseVersionNumber: v.number(),
+    prompt: v.string(),
+    allowReplaceFutureVersions: v.boolean(),
+    debug: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    versionNumber: v.number(),
+    prompt: v.optional(v.string()),
+    responseText: v.optional(v.string()),
+  }),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    versionNumber: number;
+    prompt?: string;
+    responseText?: string;
+  }> => {
+    const userPrompt = args.prompt.trim();
+    if (!userPrompt) {
+      throw new Error("Prompt cannot be empty");
+    }
+    const counters = await ctx.runMutation(api.recipes.ensureVersioningInitialized, {
+      recipeId: args.recipeId,
+    });
+    const baseVersionNumber = Math.round(args.baseVersionNumber);
+    if (
+      !Number.isFinite(baseVersionNumber) ||
+      baseVersionNumber < 1 ||
+      baseVersionNumber > counters.latestVersionNumber
+    ) {
+      throw new Error("Invalid base version number");
+    }
+    if (
+      baseVersionNumber < counters.latestVersionNumber &&
+      !args.allowReplaceFutureVersions
+    ) {
+      throw new Error("REPLACE_FUTURE_VERSIONS_REQUIRED");
+    }
+
+    const baseVersion = await ctx.runQuery(api.recipes.getVersionSnapshot, {
+      recipeId: args.recipeId,
+      versionNumber: baseVersionNumber,
+    });
+    if (!baseVersion) {
+      throw new Error("Base recipe version not found");
+    }
+
+    const client = createMistralClient();
+    const editPrompt = recipeEditPrompt(
+      snapshotToPromptRecipe(baseVersion.snapshot),
+      userPrompt,
+      "",
+    );
+    const modelResponse = await requestRecipeJsonFromModel(client, editPrompt);
+    const parsedServings =
+      Number.isFinite(modelResponse.parsed.servings) &&
+      modelResponse.parsed.servings > 0
+        ? modelResponse.parsed.servings
+        : baseVersion.snapshot.servings;
+    const normalizedParts = normalizeGeneratedRecipeParts(
+      {
+        ...modelResponse.parsed,
+        servings: parsedServings,
+      },
+      "edit",
+    );
+    const nextSnapshot = buildSnapshotFromGeneratedRecipe(
+      {
+        ...modelResponse.parsed,
+        servings: parsedServings,
+      },
+      normalizedParts,
+    );
+
+    const commitResult: { versionNumber: number } = await ctx.runMutation(
+      api.recipes.commitEditedVersion,
+      {
+        recipeId: args.recipeId,
+        baseVersionNumber,
+        prompt: userPrompt,
+        allowReplaceFutureVersions: args.allowReplaceFutureVersions,
+        snapshot: nextSnapshot,
+      },
+    );
+
+    return {
+      versionNumber: commitResult.versionNumber,
+      prompt: args.debug ? editPrompt : undefined,
+      responseText: args.debug ? modelResponse.text : undefined,
+    };
   },
 });
 
@@ -1406,7 +2335,12 @@ export const addIngredientsToGroceryList = action({
     const parts = await ctx.runQuery(api.recipes.getParts, {
       recipeId: args.recipeId,
     });
-    const partScaleById = new Map(parts.map((part) => [part._id, part.scale]));
+    const partScaleById = new Map(
+      parts.map((part: { _id: Id<"recipeParts">; scale: number }) => [
+        part._id,
+        part.scale,
+      ]),
+    );
 
     const scale = args.servings / recipe.servings;
 
@@ -1416,7 +2350,7 @@ export const addIngredientsToGroceryList = action({
         throw new Error("Ingredient is missing required partId");
       }
       const partScale = partScaleById.get(ing.partId);
-      if (partScale === undefined) {
+      if (partScale === undefined || partScale === null) {
         throw new Error("Ingredient part not found in recipe parts");
       }
       const amount = Math.round(ing.amount * scale * partScale * 10) / 10;

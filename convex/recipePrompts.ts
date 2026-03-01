@@ -112,6 +112,108 @@ Rules:
 - Return ONLY valid JSON, no markdown fences.
 `;
 
+type RecipeEditSnapshotPart = {
+  name: string;
+  position: number;
+  scale: number;
+  yieldAmount?: number;
+  yieldUnit?: string;
+  instructions: Array<string>;
+};
+
+type RecipeEditSnapshotIngredient =
+  | {
+      name: string;
+      amount: number;
+      unit: string;
+      sourcePartName?: string;
+      usedAmount?: number;
+      usedUnit?: string;
+      kcalPer100: number;
+      proteinPer100: number;
+      carbsPer100: number;
+      fatPer100: number;
+    }
+  | {
+      name: string;
+      amount: number;
+      unit: string;
+      sourcePartName?: string;
+      usedAmount?: number;
+      usedUnit?: string;
+      kcalPerUnit: number;
+      proteinPerUnit: number;
+      carbsPerUnit: number;
+      fatPerUnit: number;
+    };
+
+type RecipeEditSnapshot = {
+  name: string;
+  description: string;
+  servings: number;
+  mealTags: Array<string>;
+  instructions: Array<string>;
+  parts: Array<RecipeEditSnapshotPart & { ingredients: Array<RecipeEditSnapshotIngredient> }>;
+};
+
+export const recipeEditPrompt = (
+  baseSnapshot: RecipeEditSnapshot,
+  userEditPrompt: string,
+  goalsContext: string,
+): string => `
+You are editing an existing recipe.
+
+Current recipe JSON:
+"""${JSON.stringify(baseSnapshot)}"""
+
+User edit request:
+"""${userEditPrompt}"""
+${goalsContext}
+
+Return a complete updated recipe as valid JSON (full regeneration, not a patch) with exactly this shape:
+{
+  "name": "Recipe name",
+  "description": "Short description",
+  "servings": ${Math.max(1, Math.round(baseSnapshot.servings))},
+  "mealTags": ["Dinner"],
+  "instructions": ["Step 1", "Step 2"],
+  "parts": [
+    {
+      "name": "Main",
+      "position": 0,
+      "scale": 1,
+      "yieldAmount": 300,
+      "yieldUnit": "g",
+      "instructions": ["Prepare this part"],
+      "ingredients": [
+        ${ingredientJsonShapeMassVolume}
+      ]
+    }
+  ]
+}
+
+Rules:
+- Apply the user edit request while keeping recipe coherence.
+- Return a fully updated recipe JSON even when only a small change is requested.
+- If nutrition goals context is provided, treat it as user preferences/constraints and align ingredients and macros accordingly.
+- Keep "servings" realistic and positive.
+- Include part-specific instructions in each part's \`instructions\` array, and keep top-level \`instructions\` as overall flow.
+- If one part consumes a portion of another prepared part, set \`sourcePartName\`, \`usedAmount\`, and \`usedUnit\`.
+- Do not use \`sourcePartName\` for directly purchased ingredients.
+- For oils listed for frying, count ONLY absorbed oil.
+- Assume 5% of total frying oil is absorbed unless explicitly stated.
+- For unit "g" or "ml", return ONLY per-100 fields:
+  - kcalPer100, proteinPer100, carbsPer100, fatPer100
+- For non g/ml units, return ONLY per-unit fields:
+  - kcalPerUnit, proteinPerUnit, carbsPerUnit, fatPerUnit
+- Never return both per-100 and per-unit field sets for one ingredient.
+- Use short unit names only: "g" and "ml".
+- Return numeric values only.
+- Set mealTags using one or more from: Breakfast, Lunch, Dinner, Snack.
+- Include at least 3 ingredients and 3 steps unless the user explicitly requests a minimal recipe.
+- Return ONLY valid JSON, no markdown fences.
+`;
+
 export const recipeRegenerationPromptForMissingItems = (
   originalPrompt: string,
   firstAttemptResponseText: string,
