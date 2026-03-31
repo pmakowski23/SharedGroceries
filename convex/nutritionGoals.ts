@@ -260,7 +260,6 @@ export const updateProfile = mutation({
       v.literal("maintain"),
       v.literal("gain"),
     ),
-    macroTolerancePct: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -276,8 +275,6 @@ export const updateProfile = mutation({
       profileBodyFatPct: args.bodyFatPct,
       profileActivityLevel: args.activityLevel,
       profileGoalDirection: args.goalDirection,
-      macroTolerancePct:
-        args.macroTolerancePct ?? viewer.memberProfile.macroTolerancePct ?? 5,
     });
     return null;
   },

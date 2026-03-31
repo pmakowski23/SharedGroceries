@@ -1,16 +1,38 @@
-import type { useMealGoalForm } from "../../hooks/useMealGoalForm";
-import { round0 } from "../../lib/nutrition";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation } from "convex/react";
+import { useForm } from "@tanstack/react-form";
+import { api } from "../../../convex/_generated/api";
+import type {
+  MealGoalSettingsData,
+  MealGoalSuggestionData,
+} from "../../hooks/useMealGoalSettings";
+import { parseNonNegativeInt, round0 } from "../../lib/nutrition";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 
 type DailyTargetsSectionProps = {
-  form: ReturnType<typeof useMealGoalForm>;
+  targets: MealGoalSettingsData["targets"];
+  suggestion: MealGoalSuggestionData;
+  applySuggestionVersion: number;
+};
+
+type DailyTargetsFormValues = {
+  tolerancePct: number | "";
+  protein: number | "";
+  carbs: number | "";
+  fat: number | "";
 };
 
 const isFilledNumber = (value: number | ""): value is number =>
   value !== "" && Number.isFinite(value);
+
+const canSaveTargetsValues = (values: DailyTargetsFormValues) =>
+  isFilledNumber(values.protein) &&
+  isFilledNumber(values.carbs) &&
+  isFilledNumber(values.fat) &&
+  isFilledNumber(values.tolerancePct);
 
 type SuggestedTargetValueGroupProps = {
   suggestedValue: number | null | undefined;
@@ -41,35 +63,106 @@ const getSuggestedKcal = (
     | undefined,
 ) => {
   if (!suggestion) return null;
-  return round0(suggestion.protein * 4 + suggestion.carbs * 4 + suggestion.fat * 9);
+  return round0(
+    suggestion.protein * 4 + suggestion.carbs * 4 + suggestion.fat * 9,
+  );
 };
 
-export function DailyTargetsSection({ form }: DailyTargetsSectionProps) {
+export function DailyTargetsSection({
+  targets,
+  suggestion,
+  applySuggestionVersion,
+}: DailyTargetsSectionProps) {
+  const setMacroTargets = useMutation(api.nutritionGoals.setMacroTargets);
+  const lastAppliedSuggestionVersion = useRef(0);
+
+  const initialValues = useMemo(
+    () =>
+      ({
+        tolerancePct: targets.macroTolerancePct ?? "",
+        protein:
+          targets.protein === null || targets.protein === undefined
+            ? ""
+            : round0(targets.protein),
+        carbs:
+          targets.carbs === null || targets.carbs === undefined
+            ? ""
+            : round0(targets.carbs),
+        fat:
+          targets.fat === null || targets.fat === undefined
+            ? ""
+            : round0(targets.fat),
+      }) as DailyTargetsFormValues,
+    [
+      targets.macroTolerancePct,
+      targets.protein,
+      targets.carbs,
+      targets.fat,
+    ],
+  );
+
+  const form = useForm({
+    defaultValues: initialValues,
+  });
+
+  useEffect(() => {
+    form.reset(initialValues);
+  }, [form, initialValues]);
+
+  useEffect(() => {
+    if (
+      applySuggestionVersion === lastAppliedSuggestionVersion.current ||
+      !suggestion?.suggestion
+    ) {
+      return;
+    }
+
+    lastAppliedSuggestionVersion.current = applySuggestionVersion;
+    form.setFieldValue("protein", round0(suggestion.suggestion.protein));
+    form.setFieldValue("carbs", round0(suggestion.suggestion.carbs));
+    form.setFieldValue("fat", round0(suggestion.suggestion.fat));
+  }, [applySuggestionVersion, form, suggestion]);
+
+  const [savingTargets, setSavingTargets] = useState(false);
+
+  const handleSaveTargets = async () => {
+    const values = form.state.values;
+    if (!canSaveTargetsValues(values)) return;
+
+    setSavingTargets(true);
+    try {
+      await setMacroTargets({
+        protein: values.protein as number,
+        carbs: values.carbs as number,
+        fat: values.fat as number,
+        macroTolerancePct: values.tolerancePct as number,
+      });
+    } finally {
+      setSavingTargets(false);
+    }
+  };
+
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
         <h2 className="text-sm font-semibold text-muted-foreground">
           Daily targets
         </h2>
-        {form.suggestion?.canSuggest && form.suggestion.suggestion ? (
+        {suggestion?.canSuggest && suggestion.suggestion ? (
           <p className="text-xs text-muted-foreground">
-            BMR {form.suggestion.bmr} kcal, TDEE {form.suggestion.tdee} kcal.
+            BMR {suggestion.bmr} kcal, TDEE {suggestion.tdee} kcal.
             Suggested macro values are shown next to each input.
           </p>
         ) : (
-          <p className="text-xs text-accent">{form.suggestion?.reason}</p>
+          <p className="text-xs text-accent">{suggestion?.reason}</p>
         )}
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">kcal</Label>
-            <form.form.Subscribe
+            <form.Subscribe
               selector={(state) => {
                 const values = state.values;
-                const canSaveTargets =
-                  isFilledNumber(values.protein) &&
-                  isFilledNumber(values.carbs) &&
-                  isFilledNumber(values.fat) &&
-                  isFilledNumber(values.tolerancePct);
+                const canSaveTargets = canSaveTargetsValues(values);
 
                 const kcal = canSaveTargets
                   ? round0(
@@ -90,18 +183,18 @@ export function DailyTargetsSection({ form }: DailyTargetsSectionProps) {
                     readOnly
                     className="h-9 rounded-r-none"
                   />
-                  {form.suggestion?.canSuggest && form.suggestion.suggestion && (
+                  {suggestion?.canSuggest && suggestion.suggestion && (
                     <SuggestedTargetValueGroup
-                      suggestedValue={getSuggestedKcal(form.suggestion.suggestion)}
+                      suggestedValue={getSuggestedKcal(suggestion.suggestion)}
                     />
                   )}
                 </div>
               )}
-            </form.form.Subscribe>
+            </form.Subscribe>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Protein (g)</Label>
-            <form.form.Field name="protein">
+            <form.Field name="protein">
               {(field) => (
                 <div className="flex items-center">
                   <Input
@@ -113,23 +206,23 @@ export function DailyTargetsSection({ form }: DailyTargetsSectionProps) {
                       field.handleChange(
                         e.target.value === ""
                           ? ""
-                          : form.parseNonNegativeInt(e.target.value),
+                          : parseNonNegativeInt(e.target.value),
                       )
                     }
                     className="h-9 rounded-r-none"
                   />
-                  {form.suggestion?.canSuggest && form.suggestion.suggestion && (
+                  {suggestion?.canSuggest && suggestion.suggestion && (
                     <SuggestedTargetValueGroup
-                      suggestedValue={form.suggestion.suggestion.protein}
+                      suggestedValue={suggestion.suggestion.protein}
                     />
                   )}
                 </div>
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Carbs (g)</Label>
-            <form.form.Field name="carbs">
+            <form.Field name="carbs">
               {(field) => (
                 <div className="flex items-center">
                   <Input
@@ -141,23 +234,23 @@ export function DailyTargetsSection({ form }: DailyTargetsSectionProps) {
                       field.handleChange(
                         e.target.value === ""
                           ? ""
-                          : form.parseNonNegativeInt(e.target.value),
+                          : parseNonNegativeInt(e.target.value),
                       )
                     }
                     className="h-9 rounded-r-none"
                   />
-                  {form.suggestion?.canSuggest && form.suggestion.suggestion && (
+                  {suggestion?.canSuggest && suggestion.suggestion && (
                     <SuggestedTargetValueGroup
-                      suggestedValue={form.suggestion.suggestion.carbs}
+                      suggestedValue={suggestion.suggestion.carbs}
                     />
                   )}
                 </div>
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Fat (g)</Label>
-            <form.form.Field name="fat">
+            <form.Field name="fat">
               {(field) => (
                 <div className="flex items-center">
                   <Input
@@ -169,23 +262,23 @@ export function DailyTargetsSection({ form }: DailyTargetsSectionProps) {
                       field.handleChange(
                         e.target.value === ""
                           ? ""
-                          : form.parseNonNegativeInt(e.target.value),
+                          : parseNonNegativeInt(e.target.value),
                       )
                     }
                     className="h-9 rounded-r-none"
                   />
-                  {form.suggestion?.canSuggest && form.suggestion.suggestion && (
+                  {suggestion?.canSuggest && suggestion.suggestion && (
                     <SuggestedTargetValueGroup
-                      suggestedValue={form.suggestion.suggestion.fat}
+                      suggestedValue={suggestion.suggestion.fat}
                     />
                   )}
                 </div>
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="col-span-2 space-y-1">
             <Label className="text-xs text-muted-foreground">Tolerance (%)</Label>
-            <form.form.Field name="tolerancePct">
+            <form.Field name="tolerancePct">
               {(field) => (
                 <Input
                   type="number"
@@ -200,29 +293,21 @@ export function DailyTargetsSection({ form }: DailyTargetsSectionProps) {
                   className="h-9"
                 />
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
         </div>
-        <form.form.Subscribe
-          selector={(state) => {
-            const values = state.values;
-            return (
-              isFilledNumber(values.protein) &&
-              isFilledNumber(values.carbs) &&
-              isFilledNumber(values.fat) &&
-              isFilledNumber(values.tolerancePct)
-            );
-          }}
+        <form.Subscribe
+          selector={(state) => canSaveTargetsValues(state.values)}
         >
           {(canSaveTargets) => (
             <>
               <Button
                 type="button"
-                onClick={() => void form.handleSaveTargets()}
-                disabled={form.savingTargets || !canSaveTargets}
+                onClick={() => void handleSaveTargets()}
+                disabled={savingTargets || !canSaveTargets}
                 className="w-full"
               >
-                {form.savingTargets ? "Saving targets..." : "Save targets"}
+                {savingTargets ? "Saving targets..." : "Save targets"}
               </Button>
               {!canSaveTargets && (
                 <p className="text-xs text-accent">
@@ -231,7 +316,7 @@ export function DailyTargetsSection({ form }: DailyTargetsSectionProps) {
               )}
             </>
           )}
-        </form.form.Subscribe>
+        </form.Subscribe>
       </CardContent>
     </Card>
   );

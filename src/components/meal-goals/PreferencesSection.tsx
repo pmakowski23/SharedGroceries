@@ -1,7 +1,11 @@
+import { useEffect, useMemo, useState } from "react";
+import { useMutation } from "convex/react";
+import { useForm } from "@tanstack/react-form";
+import { api } from "../../../convex/_generated/api";
 import type {
   DietPreference,
-  useMealGoalForm,
-} from "../../hooks/useMealGoalForm";
+  MealGoalSettingsData,
+} from "../../hooks/useMealGoalSettings";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Label } from "../ui/label";
@@ -16,8 +20,20 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 
 type PreferencesSectionProps = {
-  form: ReturnType<typeof useMealGoalForm>;
+  preferences: MealGoalSettingsData["preferences"];
   dietOptions: ReadonlyArray<{ value: DietPreference; label: string }>;
+};
+
+type PreferencesFormValues = {
+  dietPreference: DietPreference;
+  excludeBeef: boolean;
+  excludePork: boolean;
+  excludeSeafood: boolean;
+  excludeDairy: boolean;
+  excludeEggs: boolean;
+  excludeGluten: boolean;
+  excludeNuts: boolean;
+  notes: string;
 };
 
 const exclusionFields = [
@@ -31,9 +47,68 @@ const exclusionFields = [
 ] as const;
 
 export function PreferencesSection({
-  form,
+  preferences,
   dietOptions,
 }: PreferencesSectionProps) {
+  const updatePreferences = useMutation(api.nutritionGoals.updatePreferences);
+
+  const initialValues = useMemo(
+    () =>
+      ({
+        dietPreference: preferences.dietPreference,
+        excludeBeef: preferences.excludeBeef,
+        excludePork: preferences.excludePork,
+        excludeSeafood: preferences.excludeSeafood,
+        excludeDairy: preferences.excludeDairy,
+        excludeEggs: preferences.excludeEggs,
+        excludeGluten: preferences.excludeGluten,
+        excludeNuts: preferences.excludeNuts,
+        notes: preferences.notes,
+      }) as PreferencesFormValues,
+    [
+      preferences.dietPreference,
+      preferences.excludeBeef,
+      preferences.excludePork,
+      preferences.excludeSeafood,
+      preferences.excludeDairy,
+      preferences.excludeEggs,
+      preferences.excludeGluten,
+      preferences.excludeNuts,
+      preferences.notes,
+    ],
+  );
+
+  const form = useForm({
+    defaultValues: initialValues,
+  });
+
+  useEffect(() => {
+    form.reset(initialValues);
+  }, [form, initialValues]);
+
+  const [savingPreferences, setSavingPreferences] = useState(false);
+
+  const handleSavePreferences = async () => {
+    const values = form.state.values;
+
+    setSavingPreferences(true);
+    try {
+      await updatePreferences({
+        dietPreference: values.dietPreference,
+        excludeBeef: values.excludeBeef,
+        excludePork: values.excludePork,
+        excludeSeafood: values.excludeSeafood,
+        excludeDairy: values.excludeDairy,
+        excludeEggs: values.excludeEggs,
+        excludeGluten: values.excludeGluten,
+        excludeNuts: values.excludeNuts,
+        notes: values.notes,
+      });
+    } finally {
+      setSavingPreferences(false);
+    }
+  };
+
   return (
     <Card>
       <CardContent className="space-y-4 p-4">
@@ -49,7 +124,7 @@ export function PreferencesSection({
 
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Diet leaning</Label>
-          <form.form.Field name="dietPreference">
+          <form.Field name="dietPreference">
             {(field) => (
               <Select
                 value={field.state.value}
@@ -69,12 +144,12 @@ export function PreferencesSection({
                 </SelectContent>
               </Select>
             )}
-          </form.form.Field>
+          </form.Field>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           {exclusionFields.map((item) => (
-            <form.form.Field key={item.name} name={item.name}>
+            <form.Field key={item.name} name={item.name}>
               {(field) => (
                 <div className="flex items-center justify-between rounded-xl border bg-card px-3 py-2">
                   <Label className="text-sm">{item.label}</Label>
@@ -84,7 +159,7 @@ export function PreferencesSection({
                   />
                 </div>
               )}
-            </form.form.Field>
+            </form.Field>
           ))}
         </div>
 
@@ -92,7 +167,7 @@ export function PreferencesSection({
           <Label className="text-xs text-muted-foreground">
             Notes for meal planning
           </Label>
-          <form.form.Field name="notes">
+          <form.Field name="notes">
             {(field) => (
               <Textarea
                 value={field.state.value}
@@ -101,18 +176,16 @@ export function PreferencesSection({
                 placeholder="Examples: spice-sensitive, wants easy lunches, kid-friendly dinners"
               />
             )}
-          </form.form.Field>
+          </form.Field>
         </div>
 
         <Button
           type="button"
-          onClick={() => void form.handleSavePreferences()}
-          disabled={form.savingPreferences}
+          onClick={() => void handleSavePreferences()}
+          disabled={savingPreferences}
           className="w-full"
         >
-          {form.savingPreferences
-            ? "Saving preferences..."
-            : "Save preferences"}
+          {savingPreferences ? "Saving preferences..." : "Save preferences"}
         </Button>
       </CardContent>
     </Card>

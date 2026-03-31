@@ -1,8 +1,12 @@
+import { useEffect, useMemo, useState } from "react";
+import { useMutation } from "convex/react";
+import { useForm } from "@tanstack/react-form";
+import { api } from "../../../convex/_generated/api";
 import type {
   ActivityLevel,
   GoalDirection,
-  useMealGoalForm,
-} from "../../hooks/useMealGoalForm";
+  MealGoalSettingsData,
+} from "../../hooks/useMealGoalSettings";
 import { Button } from "../ui/button";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
@@ -16,19 +20,95 @@ import {
 } from "../ui/select";
 
 type ProfileSectionProps = {
-  form: ReturnType<typeof useMealGoalForm>;
+  profile: MealGoalSettingsData["profile"];
   activityOptions: ReadonlyArray<{ value: ActivityLevel; label: string }>;
   goalOptions: ReadonlyArray<{ value: GoalDirection; label: string }>;
+};
+
+type OptionalActivityLevel = ActivityLevel | "";
+type OptionalGoalDirection = GoalDirection | "";
+
+type ProfileFormValues = {
+  age: number | "";
+  sex: "male" | "female" | "";
+  heightCm: number | "";
+  weightKg: number | "";
+  bodyFatPct: number | "";
+  activityLevel: OptionalActivityLevel;
+  goalDirection: OptionalGoalDirection;
 };
 
 const isFilledNumber = (value: number | ""): value is number =>
   value !== "" && Number.isFinite(value);
 
+const canSaveProfileValues = (values: ProfileFormValues) =>
+  isFilledNumber(values.age) &&
+  values.sex !== "" &&
+  isFilledNumber(values.heightCm) &&
+  isFilledNumber(values.weightKg) &&
+  values.activityLevel !== "" &&
+  values.goalDirection !== "";
+
 export function ProfileSection({
-  form,
+  profile,
   activityOptions,
   goalOptions,
 }: ProfileSectionProps) {
+  const updateProfile = useMutation(api.nutritionGoals.updateProfile);
+
+  const initialValues = useMemo(
+    () =>
+      ({
+        age: profile.age ?? "",
+        sex: profile.sex ?? "",
+        heightCm: profile.heightCm ?? "",
+        weightKg: profile.weightKg ?? "",
+        bodyFatPct: profile.bodyFatPct ?? "",
+        activityLevel: profile.activityLevel ?? "",
+        goalDirection: profile.goalDirection ?? "",
+      }) as ProfileFormValues,
+    [
+      profile.age,
+      profile.sex,
+      profile.heightCm,
+      profile.weightKg,
+      profile.bodyFatPct,
+      profile.activityLevel,
+      profile.goalDirection,
+    ],
+  );
+
+  const form = useForm({
+    defaultValues: initialValues,
+  });
+
+  useEffect(() => {
+    form.reset(initialValues);
+  }, [form, initialValues]);
+
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const handleSaveProfile = async () => {
+    const values = form.state.values;
+    if (!canSaveProfileValues(values)) return;
+
+    setSavingProfile(true);
+    try {
+      await updateProfile({
+        age: values.age as number,
+        sex: values.sex as "male" | "female",
+        heightCm: values.heightCm as number,
+        weightKg: values.weightKg as number,
+        bodyFatPct:
+          values.bodyFatPct === "" ? undefined : Number(values.bodyFatPct),
+        activityLevel: values.activityLevel as ActivityLevel,
+        goalDirection: values.goalDirection as GoalDirection,
+      });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   return (
     <Card>
       <CardContent className="space-y-3 p-4">
@@ -36,7 +116,7 @@ export function ProfileSection({
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Age</Label>
-            <form.form.Field name="age">
+            <form.Field name="age">
               {(field) => (
                 <Input
                   type="number"
@@ -51,11 +131,11 @@ export function ProfileSection({
                   className="h-9"
                 />
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Sex</Label>
-            <form.form.Field name="sex">
+            <form.Field name="sex">
               {(field) => (
                 <Select
                   value={field.state.value || undefined}
@@ -72,11 +152,11 @@ export function ProfileSection({
                   </SelectContent>
                 </Select>
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Height (cm)</Label>
-            <form.form.Field name="heightCm">
+            <form.Field name="heightCm">
               {(field) => (
                 <Input
                   type="number"
@@ -91,11 +171,11 @@ export function ProfileSection({
                   className="h-9"
                 />
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Weight (kg)</Label>
-            <form.form.Field name="weightKg">
+            <form.Field name="weightKg">
               {(field) => (
                 <Input
                   type="number"
@@ -110,13 +190,13 @@ export function ProfileSection({
                   className="h-9"
                 />
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">
               Body fat % (optional)
             </Label>
-            <form.form.Field name="bodyFatPct">
+            <form.Field name="bodyFatPct">
               {(field) => (
                 <Input
                   type="number"
@@ -131,11 +211,11 @@ export function ProfileSection({
                   className="h-9"
                 />
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Activity</Label>
-            <form.form.Field name="activityLevel">
+            <form.Field name="activityLevel">
               {(field) => (
                 <Select
                   value={field.state.value || undefined}
@@ -155,11 +235,11 @@ export function ProfileSection({
                   </SelectContent>
                 </Select>
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
           <div className="col-span-2 space-y-1">
             <Label className="text-xs text-muted-foreground">Goal</Label>
-            <form.form.Field name="goalDirection">
+            <form.Field name="goalDirection">
               {(field) => (
                 <Select
                   value={field.state.value || undefined}
@@ -179,32 +259,23 @@ export function ProfileSection({
                   </SelectContent>
                 </Select>
               )}
-            </form.form.Field>
+            </form.Field>
           </div>
         </div>
-        <form.form.Subscribe
+        <form.Subscribe
           selector={(state) => {
-            const values = state.values;
-            return (
-              isFilledNumber(values.age) &&
-              values.sex !== "" &&
-              isFilledNumber(values.heightCm) &&
-              isFilledNumber(values.weightKg) &&
-              values.activityLevel !== "" &&
-              values.goalDirection !== "" &&
-              isFilledNumber(values.tolerancePct)
-            );
+            return canSaveProfileValues(state.values);
           }}
         >
           {(canSaveProfile) => (
             <>
               <Button
                 type="button"
-                onClick={() => void form.handleSaveProfile()}
-                disabled={form.savingProfile || !canSaveProfile}
+                onClick={() => void handleSaveProfile()}
+                disabled={savingProfile || !canSaveProfile}
                 className="w-full"
               >
-                {form.savingProfile ? "Saving profile..." : "Save profile"}
+                {savingProfile ? "Saving profile..." : "Save profile"}
               </Button>
               {!canSaveProfile && (
                 <p className="text-xs text-accent">
@@ -213,7 +284,7 @@ export function ProfileSection({
               )}
             </>
           )}
-        </form.form.Subscribe>
+        </form.Subscribe>
       </CardContent>
     </Card>
   );

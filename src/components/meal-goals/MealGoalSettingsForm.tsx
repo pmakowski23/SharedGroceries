@@ -1,15 +1,14 @@
+import { useState } from "react";
 import { DailyTargetsSection } from "./DailyTargetsSection";
 import { ProfileSection } from "./ProfileSection";
-import {
-  SuggestedTargetsSection,
-} from "./SuggestedTargetsSection";
+import { SuggestedTargetsSection } from "./SuggestedTargetsSection";
 import { PreferencesSection } from "./PreferencesSection";
 import type {
   ActivityLevel,
   DietPreference,
   GoalDirection,
-} from "../../hooks/useMealGoalForm";
-import { useMealGoalForm } from "../../hooks/useMealGoalForm";
+} from "../../hooks/useMealGoalSettings";
+import { useMealGoalSettings } from "../../hooks/useMealGoalSettings";
 
 const activityOptions: ReadonlyArray<{ value: ActivityLevel; label: string }> = [
   { value: "sedentary", label: "Sedentary" },
@@ -34,9 +33,10 @@ const dietOptions: ReadonlyArray<{ value: DietPreference; label: string }> = [
 ];
 
 export function MealGoalSettingsForm() {
-  const form = useMealGoalForm();
+  const { settings, suggestion, isLoadingSettings } = useMealGoalSettings();
+  const [applySuggestionVersion, setApplySuggestionVersion] = useState(0);
 
-  if (form.isLoadingSettings) {
+  if (isLoadingSettings || !settings) {
     return (
       <div className="flex items-center justify-center py-8">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
@@ -47,16 +47,25 @@ export function MealGoalSettingsForm() {
   return (
     <>
       <ProfileSection
-        form={form}
+        profile={settings.profile}
         activityOptions={activityOptions}
         goalOptions={goalOptions}
       />
       <SuggestedTargetsSection
-        suggestion={form.suggestion}
-        onApplySuggestion={form.applySuggestedTargets}
+        suggestion={suggestion}
+        onApplySuggestion={() =>
+          setApplySuggestionVersion((version) => version + 1)
+        }
       />
-      <DailyTargetsSection form={form} />
-      <PreferencesSection form={form} dietOptions={dietOptions} />
+      <DailyTargetsSection
+        targets={settings.targets}
+        suggestion={suggestion}
+        applySuggestionVersion={applySuggestionVersion}
+      />
+      <PreferencesSection
+        preferences={settings.preferences}
+        dietOptions={dietOptions}
+      />
     </>
   );
 }
