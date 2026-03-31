@@ -25,12 +25,14 @@ export function MealPlannerPage() {
 
   const mealPlan = useQuery(api.mealPlans.getWeek, { startDate, endDate });
   const familyPlanning = useQuery(api.nutritionGoals.getFamilyPlanningContext, {});
+  const isLoadingFamilyPlanning = familyPlanning === undefined;
   const tolerancePct = familyPlanning?.targets.macroTolerancePct ?? 5;
   const targetMacros =
-    familyPlanning?.targets.kcal !== null &&
-    familyPlanning?.targets.protein !== null &&
-    familyPlanning?.targets.carbs !== null &&
-    familyPlanning?.targets.fat !== null
+    familyPlanning !== undefined &&
+    familyPlanning.targets.kcal !== null &&
+    familyPlanning.targets.protein !== null &&
+    familyPlanning.targets.carbs !== null &&
+    familyPlanning.targets.fat !== null
       ? {
           kcal: familyPlanning.targets.kcal,
           protein: familyPlanning.targets.protein,
@@ -72,7 +74,7 @@ export function MealPlannerPage() {
         endDate={endDate}
         weekDateKeys={weekDateKeys}
       />
-      {targetMacros === null && (
+      {!isLoadingFamilyPlanning && targetMacros === null && (
         <div className="mb-4 rounded-2xl border border-accent/20 bg-accent/5 p-4 text-sm text-muted-foreground">
           Save daily targets for at least one family member in the Family tab to
           generate shared meal plans.
