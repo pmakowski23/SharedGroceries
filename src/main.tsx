@@ -1,16 +1,19 @@
 import { createRoot } from "react-dom/client";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexReactClient } from "convex/react";
+import { ConvexBetterAuthProvider } from "@convex-dev/better-auth/react";
 import { RouterProvider } from "@tanstack/react-router";
 import "./index.css";
 import { router } from "./router";
 import { registerSW } from "virtual:pwa-register";
+import { authClient } from "./lib/auth";
+import { env } from "./env";
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+const convex = new ConvexReactClient(env.VITE_CONVEX_URL);
 
 createRoot(document.getElementById("root")!).render(
-  <ConvexProvider client={convex}>
+  <ConvexBetterAuthProvider client={convex} authClient={authClient}>
     <RouterProvider router={router} />
-  </ConvexProvider>
+  </ConvexBetterAuthProvider>
 );
 
 registerSW({ immediate: true });

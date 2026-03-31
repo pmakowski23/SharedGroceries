@@ -1,6 +1,14 @@
 import { DailyTargetsSection } from "./DailyTargetsSection";
 import { ProfileSection } from "./ProfileSection";
-import type { ActivityLevel, GoalDirection } from "../../hooks/useMealGoalForm";
+import {
+  SuggestedTargetsSection,
+} from "./SuggestedTargetsSection";
+import { PreferencesSection } from "./PreferencesSection";
+import type {
+  ActivityLevel,
+  DietPreference,
+  GoalDirection,
+} from "../../hooks/useMealGoalForm";
 import { useMealGoalForm } from "../../hooks/useMealGoalForm";
 
 const activityOptions: ReadonlyArray<{ value: ActivityLevel; label: string }> = [
@@ -15,6 +23,14 @@ const goalOptions: ReadonlyArray<{ value: GoalDirection; label: string }> = [
   { value: "lose", label: "Lose fat" },
   { value: "maintain", label: "Maintain weight" },
   { value: "gain", label: "Gain mass" },
+];
+
+const dietOptions: ReadonlyArray<{ value: DietPreference; label: string }> = [
+  { value: "none", label: "No preference" },
+  { value: "moreVegetarian", label: "More vegetarian" },
+  { value: "moreVegan", label: "More vegan" },
+  { value: "vegetarian", label: "Vegetarian only" },
+  { value: "vegan", label: "Vegan only" },
 ];
 
 export function MealGoalSettingsForm() {
@@ -35,7 +51,12 @@ export function MealGoalSettingsForm() {
         activityOptions={activityOptions}
         goalOptions={goalOptions}
       />
+      <SuggestedTargetsSection
+        suggestion={form.suggestion}
+        onApplySuggestion={form.applySuggestedTargets}
+      />
       <DailyTargetsSection form={form} />
+      <PreferencesSection form={form} dietOptions={dietOptions} />
     </>
   );
 }

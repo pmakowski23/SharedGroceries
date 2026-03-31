@@ -3,31 +3,47 @@ import {
   createRootRoute,
   createRoute,
   Outlet,
+  useRouterState,
 } from "@tanstack/react-router";
 import { BottomNav } from "./components/BottomNav";
 import { InitializationGate } from "./components/InitializationGate";
-import { NutritionTargetsGate } from "./components/NutritionTargetsGate";
 import { GroceryListPage } from "./pages/GroceryListPage";
 import { RecipesPage } from "./pages/RecipesPage";
 import { MealPlannerPage } from "./pages/MealPlannerPage";
 import { RecipeDetailPage } from "./pages/RecipeDetailPage";
 import { MealGoalSettingsPage } from "./pages/MealGoalSettingsPage";
 import { ErrorFallbackPage } from "./pages/ErrorFallbackPage";
+import { AuthPage } from "./pages/AuthPage";
+
+function AppShell() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const isAuthRoute = pathname === "/auth";
+
+  return (
+    <div className={`min-h-screen ${isAuthRoute ? "" : "bg-gray-50 pb-20"}`}>
+      <Outlet />
+      {!isAuthRoute && <BottomNav />}
+    </div>
+  );
+}
 
 const rootRoute = createRootRoute({
   component: () => (
     <InitializationGate>
-      <NutritionTargetsGate>
-        <div className="min-h-screen bg-gray-50 pb-20">
-          <Outlet />
-          <BottomNav />
-        </div>
-      </NutritionTargetsGate>
+      <AppShell />
     </InitializationGate>
   ),
   errorComponent: ({ error, reset }) => (
     <ErrorFallbackPage error={error} onTryAgain={reset} />
   ),
+});
+
+const authRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/auth",
+  component: AuthPage,
 });
 
 const groceriesRoute = createRoute({
@@ -56,11 +72,12 @@ const mealPlannerRoute = createRoute({
 
 const mealGoalSettingsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/meal-goals",
+  path: "/family",
   component: MealGoalSettingsPage,
 });
 
 const routeTree = rootRoute.addChildren([
+  authRoute,
   groceriesRoute,
   recipesRoute,
   recipeDetailRoute,

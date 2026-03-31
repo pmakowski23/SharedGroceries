@@ -52,8 +52,8 @@ const tabs = [
     ),
   },
   {
-    to: "/meal-goals" as const,
-    label: "Goals",
+    to: "/family" as const,
+    label: "Family",
     icon: (active: boolean) => (
       <svg
         className="w-6 h-6"

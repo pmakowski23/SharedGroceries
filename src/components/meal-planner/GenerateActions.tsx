@@ -8,6 +8,7 @@ type GenerateActionsProps = {
   currentDateKey: string;
   startDate: string;
   endDate: string;
+  weekDateKeys: string[];
 };
 
 export function GenerateActions({
@@ -15,10 +16,13 @@ export function GenerateActions({
   currentDateKey,
   startDate,
   endDate,
+  weekDateKeys,
 }: GenerateActionsProps) {
   const generateGroceryList = useAction(api.mealPlans.generateGroceryList);
   const generateDayPlan = useMutation(api.mealPlans.generateDayPlan);
+  const generateWeekPlan = useMutation(api.mealPlans.generateWeekPlan);
   const [generatingDayPlan, setGeneratingDayPlan] = useState(false);
+  const [generatingWeekPlan, setGeneratingWeekPlan] = useState(false);
   const [generatingGroceryList, setGeneratingGroceryList] = useState(false);
 
   const handleGenerateDayPlan = async () => {
@@ -27,6 +31,15 @@ export function GenerateActions({
       await generateDayPlan({ date: currentDateKey });
     } finally {
       setGeneratingDayPlan(false);
+    }
+  };
+
+  const handleGenerateWeekPlan = async () => {
+    setGeneratingWeekPlan(true);
+    try {
+      await generateWeekPlan({ dates: weekDateKeys });
+    } finally {
+      setGeneratingWeekPlan(false);
     }
   };
 
@@ -49,14 +62,26 @@ export function GenerateActions({
       >
         {generatingDayPlan
           ? "Generating day plan..."
-          : "Generate Day Plan (Fit Goals)"}
+          : "Generate Day Plan"}
+      </Button>
+
+      <Button
+        type="button"
+        onClick={() => void handleGenerateWeekPlan()}
+        disabled={generatingWeekPlan || !targetMacrosAvailable}
+        className="mb-4 w-full"
+        variant="secondary"
+      >
+        {generatingWeekPlan
+          ? "Generating week plan..."
+          : "Generate Whole Week"}
       </Button>
 
       <Button
         type="button"
         onClick={() => void handleGenerateGroceryList()}
         disabled={generatingGroceryList}
-        variant="secondary"
+        variant="outline"
         className="mb-4 w-full"
       >
         {generatingGroceryList

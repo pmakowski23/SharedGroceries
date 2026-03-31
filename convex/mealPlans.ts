@@ -7,6 +7,12 @@ import {
   normalizeUnitShortName,
 } from "./lib/ingredientNutrition";
 import { computeRecipePartMacros } from "./lib/recipePartNutrition";
+import { listFamilyMemberProfiles, requireViewer } from "./families";
+import {
+  aggregateFamilyPlanningContext,
+  recipePreferencePenalty,
+  recipeViolatesFamilyPreferences,
+} from "./lib/familyPlanning";
 
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
 
@@ -31,9 +37,10 @@ function addMacros(a: MacroTotals, b: MacroTotals): MacroTotals {
 }
 
 function scoreDelta(actual: MacroTotals, target: MacroTotals): number {
-  const safe = (v: number) => Math.max(1, v);
+  const safe = (value: number) => Math.max(1, value);
   const kcalErr = Math.abs(actual.kcal - target.kcal) / safe(target.kcal);
-  const proteinErr = Math.abs(actual.protein - target.protein) / safe(target.protein);
+  const proteinErr =
+    Math.abs(actual.protein - target.protein) / safe(target.protein);
   const carbsErr = Math.abs(actual.carbs - target.carbs) / safe(target.carbs);
   const fatErr = Math.abs(actual.fat - target.fat) / safe(target.fat);
   return kcalErr * 0.35 + proteinErr * 0.25 + carbsErr * 0.2 + fatErr * 0.2;
@@ -41,6 +48,292 @@ function scoreDelta(actual: MacroTotals, target: MacroTotals): number {
 
 function isMealTag(value: string): value is (typeof MEAL_TYPES)[number] {
   return (MEAL_TYPES as readonly string[]).includes(value);
+}
+
+async function requireMealPlanForFamily(
+  ctx: any,
+  familyId: Id<"families">,
+  mealPlanId: Id<"mealPlans">,
+) {
+  const mealPlan = await ctx.db.get(mealPlanId);
+  if (!mealPlan || mealPlan.familyId !== familyId) {
+    throw new Error("Meal plan not found");
+  }
+  return mealPlan;
+}
+
+async function buildFamilyRecipePool(
+  ctx: any,
+  familyId: Id<"families">,
+  planningProfiles: Array<{
+    dietPreference?: string;
+    excludeBeef?: boolean;
+    excludePork?: boolean;
+    excludeSeafood?: boolean;
+    excludeDairy?: boolean;
+    excludeEggs?: boolean;
+    excludeGluten?: boolean;
+    excludeNuts?: boolean;
+    preferenceNotes?: string;
+  }>,
+) {
+  const recipes = await ctx.db
+    .query("recipes")
+    .withIndex("by_familyId", (q: any) => q.eq("familyId", familyId))
+    .collect();
+  const pool: Array<{
+    recipeId: Id<"recipes">;
+    recipeName: string;
+    recipeDescription: string;
+    servingsBase: number;
+    mealTags: Array<(typeof MEAL_TYPES)[number]>;
+    perServing: MacroTotals;
+    penalty: number;
+  }> = [];
+
+  for (const recipe of recipes) {
+    const ingredients = await ctx.db
+      .query("recipeIngredients")
+      .withIndex("by_recipeId", (q: any) => q.eq("recipeId", recipe._id))
+      .collect();
+    const parts = await ctx.db
+      .query("recipeParts")
+      .withIndex("by_recipeId", (q: any) => q.eq("recipeId", recipe._id))
+      .collect();
+    if (ingredients.length === 0 || recipe.servings <= 0) {
+      continue;
+    }
+
+    const ingredientNames = ingredients.map(
+      (ingredient: { name: string }) => ingredient.name,
+    );
+    const preferenceText = [
+      recipe.name,
+      recipe.description,
+      ...ingredientNames,
+    ];
+    if (recipeViolatesFamilyPreferences(preferenceText, planningProfiles)) {
+      continue;
+    }
+
+    const normalizedIngredients = ingredients.map((ingredient: any) => {
+      const normalized = normalizeIngredientMacroShape(ingredient);
+      return {
+        ...ingredient,
+        ...normalized,
+        unit: normalizeUnitShortName(normalized.unit),
+      };
+    });
+    const base = computeRecipePartMacros(
+      parts as Array<{ _id: string; scale: number; yieldAmount?: number; yieldUnit?: string }>,
+      normalizedIngredients as Array<any>,
+    ).total;
+
+    const persistedTags = (recipe as { mealTags?: Array<string> }).mealTags ?? [];
+    const normalizedTags = persistedTags.filter(isMealTag);
+    const mealTags = normalizedTags.length > 0 ? normalizedTags : [...MEAL_TYPES];
+
+    pool.push({
+      recipeId: recipe._id,
+      recipeName: recipe.name,
+      recipeDescription: recipe.description,
+      servingsBase: recipe.servings,
+      mealTags,
+      perServing: {
+        kcal: base.kcal / recipe.servings,
+        protein: base.protein / recipe.servings,
+        carbs: base.carbs / recipe.servings,
+        fat: base.fat / recipe.servings,
+      },
+      penalty: recipePreferencePenalty(preferenceText, planningProfiles),
+    });
+  }
+
+  return pool;
+}
+
+async function generateDayPlanForFamily(
+  ctx: any,
+  familyId: Id<"families">,
+  date: string,
+) {
+  const planningProfiles = await listFamilyMemberProfiles(ctx, familyId);
+  const aggregate = aggregateFamilyPlanningContext(planningProfiles);
+  if (!aggregate.targets) {
+    throw new Error(
+      "At least one family member must save daily targets before generating a plan.",
+    );
+  }
+
+  const recipesWithMacros = await buildFamilyRecipePool(
+    ctx,
+    familyId,
+    planningProfiles,
+  );
+  if (recipesWithMacros.length === 0) {
+    throw new Error("No recipes match the family preferences.");
+  }
+
+  const target: MacroTotals = {
+    kcal: aggregate.targets.kcal,
+    protein: aggregate.targets.protein,
+    carbs: aggregate.targets.carbs,
+    fat: aggregate.targets.fat,
+  };
+
+  const slotKcalShare: Record<(typeof MEAL_TYPES)[number], number> = {
+    Breakfast: 0.25,
+    Lunch: 0.3,
+    Dinner: 0.35,
+    Snack: 0.1,
+  };
+
+  const selected: Array<{
+    mealType: (typeof MEAL_TYPES)[number];
+    recipeId: Id<"recipes">;
+    servings: number;
+    macros: MacroTotals;
+  }> = [];
+
+  for (const mealType of MEAL_TYPES) {
+    const candidates = recipesWithMacros.filter((recipe) =>
+      recipe.mealTags.includes(mealType),
+    );
+    const pool = candidates.length > 0 ? candidates : recipesWithMacros;
+    const slotTarget: MacroTotals = {
+      kcal: target.kcal * slotKcalShare[mealType],
+      protein: target.protein * slotKcalShare[mealType],
+      carbs: target.carbs * slotKcalShare[mealType],
+      fat: target.fat * slotKcalShare[mealType],
+    };
+
+    let best:
+      | {
+          recipeId: Id<"recipes">;
+          servings: number;
+          macros: MacroTotals;
+          score: number;
+        }
+      | null = null;
+
+    for (const recipe of pool) {
+      const estimatedServings =
+        slotTarget.kcal / Math.max(1, recipe.perServing.kcal);
+      const servings = Math.max(
+        0.5,
+        Math.min(8, Math.round(estimatedServings * 4) / 4),
+      );
+      const macros = {
+        kcal: recipe.perServing.kcal * servings,
+        protein: recipe.perServing.protein * servings,
+        carbs: recipe.perServing.carbs * servings,
+        fat: recipe.perServing.fat * servings,
+      };
+      const score = scoreDelta(macros, slotTarget) + recipe.penalty;
+      if (!best || score < best.score) {
+        best = {
+          recipeId: recipe.recipeId,
+          servings,
+          macros,
+          score,
+        };
+      }
+    }
+
+    if (best) {
+      selected.push({
+        mealType,
+        recipeId: best.recipeId,
+        servings: best.servings,
+        macros: best.macros,
+      });
+    }
+  }
+
+  const servingSteps = [-0.25, 0.25, -0.5, 0.5];
+  for (let i = 0; i < 80; i += 1) {
+    const currentTotals = selected.reduce(
+      (acc, slot) => addMacros(acc, slot.macros),
+      emptyMacros(),
+    );
+    const currentScore = scoreDelta(currentTotals, target);
+    let improved = false;
+
+    for (const slot of selected) {
+      const recipe = recipesWithMacros.find((candidate) => candidate.recipeId === slot.recipeId);
+      if (!recipe) {
+        continue;
+      }
+
+      for (const step of servingSteps) {
+        const nextServings = Math.max(
+          0.5,
+          Math.min(8, Math.round((slot.servings + step) * 4) / 4),
+        );
+        if (nextServings === slot.servings) {
+          continue;
+        }
+
+        const nextMacros = {
+          kcal: recipe.perServing.kcal * nextServings,
+          protein: recipe.perServing.protein * nextServings,
+          carbs: recipe.perServing.carbs * nextServings,
+          fat: recipe.perServing.fat * nextServings,
+        };
+
+        const proposalTotals = selected.reduce((acc, candidate) => {
+          if (candidate.mealType === slot.mealType) {
+            return addMacros(acc, nextMacros);
+          }
+          return addMacros(acc, candidate.macros);
+        }, emptyMacros());
+        const proposalScore = scoreDelta(proposalTotals, target);
+        if (proposalScore + 0.0001 < currentScore) {
+          slot.servings = nextServings;
+          slot.macros = nextMacros;
+          improved = true;
+        }
+      }
+    }
+
+    if (!improved) {
+      break;
+    }
+  }
+
+  const existing = await ctx.db
+    .query("mealPlans")
+    .withIndex("by_family_date", (q: any) =>
+      q.eq("familyId", familyId).eq("date", date),
+    )
+    .collect();
+  for (const plan of existing) {
+    await ctx.db.delete(plan._id);
+  }
+
+  for (const slot of selected) {
+    await ctx.db.insert("mealPlans", {
+      familyId,
+      date,
+      mealType: slot.mealType,
+      recipeId: slot.recipeId,
+      servings: slot.servings,
+    });
+  }
+
+  const totals = selected.reduce(
+    (acc, slot) => addMacros(acc, slot.macros),
+    emptyMacros(),
+  );
+  return {
+    generatedCount: selected.length,
+    totals: {
+      kcal: Math.round(totals.kcal),
+      protein: Math.round(totals.protein * 10) / 10,
+      carbs: Math.round(totals.carbs * 10) / 10,
+      fat: Math.round(totals.fat * 10) / 10,
+    },
+  };
 }
 
 export const getWeek = query({
@@ -61,27 +354,33 @@ export const getWeek = query({
       totalProtein: v.number(),
       totalCarbs: v.number(),
       totalFat: v.number(),
-    })
+    }),
   ),
   handler: async (ctx, args) => {
-    const allPlans = await ctx.db.query("mealPlans").withIndex("by_date").collect();
+    const viewer = await requireViewer(ctx);
+    const allPlans = await ctx.db
+      .query("mealPlans")
+      .withIndex("by_familyId", (q: any) => q.eq("familyId", viewer.family._id))
+      .collect();
 
     const weekPlans = allPlans.filter(
-      (p) => p.date >= args.startDate && p.date <= args.endDate
+      (plan) => plan.date >= args.startDate && plan.date <= args.endDate,
     );
 
     const result = [];
     for (const plan of weekPlans) {
       const recipe = await ctx.db.get(plan.recipeId);
-      if (!recipe) continue;
+      if (!recipe || recipe.familyId !== viewer.family._id) {
+        continue;
+      }
 
       const ingredients = await ctx.db
         .query("recipeIngredients")
-        .withIndex("by_recipeId", (q) => q.eq("recipeId", plan.recipeId))
+        .withIndex("by_recipeId", (q: any) => q.eq("recipeId", plan.recipeId))
         .collect();
       const parts = await ctx.db
         .query("recipeParts")
-        .withIndex("by_recipeId", (q) => q.eq("recipeId", plan.recipeId))
+        .withIndex("by_recipeId", (q: any) => q.eq("recipeId", plan.recipeId))
         .collect();
 
       const scale = plan.servings / recipe.servings;
@@ -126,10 +425,19 @@ export const addMeal = mutation({
   },
   returns: v.id("mealPlans"),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    const recipe = await ctx.db.get(args.recipeId);
+    if (!recipe || recipe.familyId !== viewer.family._id) {
+      throw new Error("Recipe not found");
+    }
+
     const existing = await ctx.db
       .query("mealPlans")
-      .withIndex("by_date_and_mealType", (q) =>
-        q.eq("date", args.date).eq("mealType", args.mealType)
+      .withIndex("by_family_date_and_mealType", (q: any) =>
+        q
+          .eq("familyId", viewer.family._id)
+          .eq("date", args.date)
+          .eq("mealType", args.mealType),
       )
       .first();
 
@@ -142,6 +450,7 @@ export const addMeal = mutation({
     }
 
     return await ctx.db.insert("mealPlans", {
+      familyId: viewer.family._id,
       date: args.date,
       mealType: args.mealType,
       recipeId: args.recipeId,
@@ -154,6 +463,8 @@ export const removeMeal = mutation({
   args: { mealPlanId: v.id("mealPlans") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireMealPlanForFamily(ctx, viewer.family._id, args.mealPlanId);
     await ctx.db.delete(args.mealPlanId);
     return null;
   },
@@ -166,7 +477,11 @@ export const updateServings = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.mealPlanId, { servings: args.servings });
+    const viewer = await requireViewer(ctx);
+    await requireMealPlanForFamily(ctx, viewer.family._id, args.mealPlanId);
+    await ctx.db.patch(args.mealPlanId, {
+      servings: args.servings,
+    });
     return null;
   },
 });
@@ -185,215 +500,25 @@ export const generateDayPlan = mutation({
     }),
   }),
   handler: async (ctx, args) => {
-    const settings = await ctx.db.query("appSettings").first();
-    if (
-      !settings?.targetKcal ||
-      !settings.targetProtein ||
-      !settings.targetCarbs ||
-      !settings.targetFat
-    ) {
-      throw new Error("Daily kcal and macro targets must be set before generating.");
+    const viewer = await requireViewer(ctx);
+    return await generateDayPlanForFamily(ctx, viewer.family._id, args.date);
+  },
+});
+
+export const generateWeekPlan = mutation({
+  args: {
+    dates: v.array(v.string()),
+  },
+  returns: v.object({
+    daysGenerated: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    for (const date of args.dates) {
+      await generateDayPlanForFamily(ctx, viewer.family._id, date);
     }
-
-    const target: MacroTotals = {
-      kcal: settings.targetKcal,
-      protein: settings.targetProtein,
-      carbs: settings.targetCarbs,
-      fat: settings.targetFat,
-    };
-
-    const recipes = await ctx.db.query("recipes").collect();
-    if (recipes.length === 0) {
-      throw new Error("No recipes available for planning.");
-    }
-
-    const recipesWithMacros: Array<{
-      recipeId: Id<"recipes">;
-      recipeName: string;
-      servingsBase: number;
-      mealTags: Array<(typeof MEAL_TYPES)[number]>;
-      perServing: MacroTotals;
-    }> = [];
-
-    for (const recipe of recipes) {
-      const ingredients = await ctx.db
-        .query("recipeIngredients")
-        .withIndex("by_recipeId", (q) => q.eq("recipeId", recipe._id))
-        .collect();
-      const parts = await ctx.db
-        .query("recipeParts")
-        .withIndex("by_recipeId", (q) => q.eq("recipeId", recipe._id))
-        .collect();
-      if (ingredients.length === 0 || recipe.servings <= 0) {
-        continue;
-      }
-
-      const normalizedIngredients = ingredients.map((ingredient) => {
-        const normalized = normalizeIngredientMacroShape(ingredient);
-        return {
-          ...ingredient,
-          ...normalized,
-          unit: normalizeUnitShortName(normalized.unit),
-        };
-      });
-      const base = computeRecipePartMacros(
-        parts as Array<{ _id: string; scale: number; yieldAmount?: number; yieldUnit?: string }>,
-        normalizedIngredients as Array<any>,
-      ).total;
-
-      const persistedTags = (recipe as { mealTags?: Array<string> }).mealTags ?? [];
-      const normalizedTags = persistedTags.filter(isMealTag);
-      const tags = normalizedTags.length > 0 ? normalizedTags : [...MEAL_TYPES];
-
-      recipesWithMacros.push({
-        recipeId: recipe._id,
-        recipeName: recipe.name,
-        servingsBase: recipe.servings,
-        mealTags: tags,
-        perServing: {
-          kcal: base.kcal / recipe.servings,
-          protein: base.protein / recipe.servings,
-          carbs: base.carbs / recipe.servings,
-          fat: base.fat / recipe.servings,
-        },
-      });
-    }
-
-    if (recipesWithMacros.length === 0) {
-      throw new Error("No recipes with ingredient macros are available.");
-    }
-
-    const slotKcalShare: Record<(typeof MEAL_TYPES)[number], number> = {
-      Breakfast: 0.25,
-      Lunch: 0.3,
-      Dinner: 0.35,
-      Snack: 0.1,
-    };
-
-    const selected: Array<{
-      mealType: (typeof MEAL_TYPES)[number];
-      recipeId: Id<"recipes">;
-      servings: number;
-      macros: MacroTotals;
-    }> = [];
-
-    for (const mealType of MEAL_TYPES) {
-      const candidates = recipesWithMacros.filter((r) => r.mealTags.includes(mealType));
-      const pool = candidates.length > 0 ? candidates : recipesWithMacros;
-      const slotTarget: MacroTotals = {
-        kcal: target.kcal * slotKcalShare[mealType],
-        protein: target.protein * slotKcalShare[mealType],
-        carbs: target.carbs * slotKcalShare[mealType],
-        fat: target.fat * slotKcalShare[mealType],
-      };
-
-      let best:
-        | {
-            recipeId: Id<"recipes">;
-            servings: number;
-            macros: MacroTotals;
-            score: number;
-          }
-        | null = null;
-
-      for (const recipe of pool) {
-        const estimatedServings = slotTarget.kcal / Math.max(1, recipe.perServing.kcal);
-        const servings = Math.max(0.5, Math.min(3, Math.round(estimatedServings * 4) / 4));
-        const macros = {
-          kcal: recipe.perServing.kcal * servings,
-          protein: recipe.perServing.protein * servings,
-          carbs: recipe.perServing.carbs * servings,
-          fat: recipe.perServing.fat * servings,
-        };
-        const score = scoreDelta(macros, slotTarget);
-        if (!best || score < best.score) {
-          best = {
-            recipeId: recipe.recipeId,
-            servings,
-            macros,
-            score,
-          };
-        }
-      }
-
-      if (best) {
-        selected.push({
-          mealType,
-          recipeId: best.recipeId,
-          servings: best.servings,
-          macros: best.macros,
-        });
-      }
-    }
-
-    // Improve fit with local serving adjustments.
-    const servingSteps = [-0.25, 0.25, -0.5, 0.5];
-    for (let i = 0; i < 80; i++) {
-      const currentTotals = selected.reduce((acc, slot) => addMacros(acc, slot.macros), emptyMacros());
-      const currentScore = scoreDelta(currentTotals, target);
-      let improved = false;
-
-      for (const slot of selected) {
-        const recipe = recipesWithMacros.find((r) => r.recipeId === slot.recipeId);
-        if (!recipe) continue;
-
-        for (const step of servingSteps) {
-          const nextServings = Math.max(0.5, Math.min(4, Math.round((slot.servings + step) * 4) / 4));
-          if (nextServings === slot.servings) continue;
-
-          const nextMacros = {
-            kcal: recipe.perServing.kcal * nextServings,
-            protein: recipe.perServing.protein * nextServings,
-            carbs: recipe.perServing.carbs * nextServings,
-            fat: recipe.perServing.fat * nextServings,
-          };
-
-          const proposalTotals = selected.reduce((acc, candidate) => {
-            if (candidate.mealType === slot.mealType) {
-              return addMacros(acc, nextMacros);
-            }
-            return addMacros(acc, candidate.macros);
-          }, emptyMacros());
-          const proposalScore = scoreDelta(proposalTotals, target);
-          if (proposalScore + 0.0001 < currentScore) {
-            slot.servings = nextServings;
-            slot.macros = nextMacros;
-            improved = true;
-          }
-        }
-      }
-
-      if (!improved) {
-        break;
-      }
-    }
-
-    const existing = await ctx.db
-      .query("mealPlans")
-      .withIndex("by_date", (q) => q.eq("date", args.date))
-      .collect();
-    for (const plan of existing) {
-      await ctx.db.delete(plan._id);
-    }
-
-    for (const slot of selected) {
-      await ctx.db.insert("mealPlans", {
-        date: args.date,
-        mealType: slot.mealType,
-        recipeId: slot.recipeId,
-        servings: slot.servings,
-      });
-    }
-
-    const totals = selected.reduce((acc, slot) => addMacros(acc, slot.macros), emptyMacros());
     return {
-      generatedCount: selected.length,
-      totals: {
-        kcal: Math.round(totals.kcal),
-        protein: Math.round(totals.protein * 10) / 10,
-        carbs: Math.round(totals.carbs * 10) / 10,
-        fat: Math.round(totals.fat * 10) / 10,
-      },
+      daysGenerated: args.dates.length,
     };
   },
 });
@@ -416,7 +541,9 @@ export const generateGroceryList = action({
       const recipe = await ctx.runQuery(api.recipes.get, {
         recipeId: meal.recipeId,
       });
-      if (!recipe) continue;
+      if (!recipe) {
+        continue;
+      }
 
       const ingredients = await ctx.runQuery(api.recipes.getIngredients, {
         recipeId: meal.recipeId,
@@ -424,24 +551,27 @@ export const generateGroceryList = action({
       const parts = await ctx.runQuery(api.recipes.getParts, {
         recipeId: meal.recipeId,
       });
-      const partScaleById = new Map(parts.map((part) => [part._id, part.scale]));
-
+      const partScaleById = new Map(
+        parts.map((part: { _id: Id<"recipeParts">; scale: number }) => [
+          part._id,
+          part.scale,
+        ]),
+      );
       const scale = meal.servings / recipe.servings;
 
-      for (const ing of ingredients) {
-        if (ing.sourcePartId) continue;
-        const key = `${ing.name.toLowerCase()}|${ing.unit}`;
+      for (const ingredient of ingredients) {
+        if (ingredient.sourcePartId) {
+          continue;
+        }
+        const key = `${ingredient.name.toLowerCase()}|${ingredient.unit}`;
         if (!aggregated[key]) {
-          aggregated[key] = { amount: 0, unit: ing.unit };
+          aggregated[key] = { amount: 0, unit: ingredient.unit };
         }
-        if (!ing.partId) {
-          throw new Error("Ingredient is missing required partId");
-        }
-        const partScale = partScaleById.get(ing.partId);
-        if (partScale === undefined) {
+        const partScale = partScaleById.get(ingredient.partId);
+        if (partScale === undefined || partScale === null) {
           throw new Error("Ingredient part not found in recipe parts");
         }
-        aggregated[key].amount += ing.amount * scale * partScale;
+        aggregated[key].amount += ingredient.amount * scale * partScale;
       }
     }
 
@@ -449,7 +579,9 @@ export const generateGroceryList = action({
       const name = key.split("|")[0];
       const amount = Math.round(value.amount * 10) / 10;
       const itemName = `${name} (${amount} ${value.unit})`;
-      await ctx.runAction(api.groceries.categorizeItem, { itemName });
+      await ctx.runAction(api.groceries.categorizeItem, {
+        itemName,
+      });
     }
 
     return null;

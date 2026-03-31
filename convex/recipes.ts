@@ -20,42 +20,17 @@ import {
   evaluateRecipeImportCompleteness,
 } from "./lib/recipeImportValidation";
 import { computeRecipePartMacros } from "./lib/recipePartNutrition";
+import { env } from "./env";
+import { requireViewer } from "./families";
 
 const model = "mistral-small-latest";
 const mealTagValues = ["Breakfast", "Lunch", "Dinner", "Snack"] as const;
 type MealTag = (typeof mealTagValues)[number];
-type OptionalSex = "male" | "female" | null;
-type OptionalActivityLevel =
-  | "sedentary"
-  | "light"
-  | "moderate"
-  | "active"
-  | "veryActive"
-  | null;
-type OptionalGoalDirection = "lose" | "maintain" | "gain" | null;
-
-type GoalsSettings = {
-  profile: {
-    age: number | null;
-    sex: OptionalSex;
-    heightCm: number | null;
-    weightKg: number | null;
-    bodyFatPct: number | null;
-    activityLevel: OptionalActivityLevel;
-    goalDirection: OptionalGoalDirection;
-  };
-  targets: {
-    kcal: number | null;
-    protein: number | null;
-    carbs: number | null;
-    fat: number | null;
-    macroTolerancePct: number;
-  };
-};
 
 type MassVolumeIngredientDocument = {
   _id: Id<"recipeIngredients">;
   _creationTime: number;
+  familyId?: Id<"families">;
   recipeId: Id<"recipes">;
   partId: Id<"recipeParts">;
   sourcePartId?: Id<"recipeParts">;
@@ -73,6 +48,7 @@ type MassVolumeIngredientDocument = {
 type PerUnitIngredientDocument = {
   _id: Id<"recipeIngredients">;
   _creationTime: number;
+  familyId?: Id<"families">;
   recipeId: Id<"recipes">;
   partId: Id<"recipeParts">;
   sourcePartId?: Id<"recipeParts">;
@@ -130,6 +106,7 @@ type IngredientMacroUpdate =
 type RecipePartDocument = {
   _id: Id<"recipeParts">;
   _creationTime: number;
+  familyId?: Id<"families">;
   recipeId: Id<"recipes">;
   name: string;
   position: number;
@@ -152,6 +129,7 @@ type RecipePartInput = {
 type RecipeDocument = {
   _id: Id<"recipes">;
   _creationTime: number;
+  familyId?: Id<"families">;
   name: string;
   description: string;
   servings: number;
@@ -212,6 +190,7 @@ type RecipeVersionSnapshot = {
 type RecipeVersionDocument = {
   _id: Id<"recipeVersions">;
   _creationTime: number;
+  familyId?: Id<"families">;
   recipeId: Id<"recipes">;
   versionNumber: number;
   prompt?: string;
@@ -264,6 +243,7 @@ const ingredientInputValidator = v.union(
 const recipePartValidator = v.object({
   _id: v.id("recipeParts"),
   _creationTime: v.number(),
+  familyId: v.optional(v.id("families")),
   recipeId: v.id("recipes"),
   name: v.string(),
   position: v.number(),
@@ -296,6 +276,7 @@ const ingredientDocumentValidator = v.union(
   v.object({
     _id: v.id("recipeIngredients"),
     _creationTime: v.number(),
+    familyId: v.optional(v.id("families")),
     recipeId: v.id("recipes"),
     partId: v.id("recipeParts"),
     sourcePartId: v.optional(v.id("recipeParts")),
@@ -309,6 +290,7 @@ const ingredientDocumentValidator = v.union(
   v.object({
     _id: v.id("recipeIngredients"),
     _creationTime: v.number(),
+    familyId: v.optional(v.id("families")),
     recipeId: v.id("recipes"),
     partId: v.id("recipeParts"),
     sourcePartId: v.optional(v.id("recipeParts")),
@@ -568,15 +550,11 @@ function normalizeIngredientDocument(
 }
 
 function createMistralClient() {
-  const apiKey = process.env.MISTRAL_API_KEY;
-  if (!apiKey) {
-    throw new Error("MISTRAL_API_KEY is not set");
-  }
-  return new Mistral({ apiKey });
+  return new Mistral({ apiKey: env.MISTRAL_API_KEY });
 }
 
 function isDevEnvironment(): boolean {
-  return process.env.CONVEX_ENV === "dev";
+  return env.CONVEX_ENV === "dev";
 }
 
 function extractTextFromMessageContent(content: unknown): string {
@@ -682,10 +660,12 @@ async function getRecipeParts(
 
 async function createRecipePart(
   ctx: any,
+  familyId: Id<"families">,
   recipeId: Id<"recipes">,
   part: Omit<RecipePartInput, "ingredients">,
 ): Promise<Id<"recipeParts">> {
   return await ctx.db.insert("recipeParts", {
+    familyId,
     recipeId,
     name: part.name,
     position: part.position,
@@ -739,6 +719,42 @@ function getNormalizedRecipeMealTags(recipe: {
     return normalizedMealTags;
   }
   return inferMealTagsFromText(`${recipe.name} ${recipe.description}`);
+}
+
+async function requireRecipeForFamily(
+  ctx: any,
+  familyId: Id<"families">,
+  recipeId: Id<"recipes">,
+): Promise<RecipeDocument> {
+  const recipe = (await ctx.db.get(recipeId)) as RecipeDocument | null;
+  if (!recipe || recipe.familyId !== familyId) {
+    throw new Error("Recipe not found");
+  }
+  return recipe;
+}
+
+async function requirePartForFamily(
+  ctx: any,
+  familyId: Id<"families">,
+  partId: Id<"recipeParts">,
+): Promise<RecipePartDocument> {
+  const part = (await ctx.db.get(partId)) as RecipePartDocument | null;
+  if (!part || part.familyId !== familyId) {
+    throw new Error("Part not found");
+  }
+  return part;
+}
+
+async function requireIngredientForFamily(
+  ctx: any,
+  familyId: Id<"families">,
+  ingredientId: Id<"recipeIngredients">,
+): Promise<IngredientDocument> {
+  const ingredient = (await ctx.db.get(ingredientId)) as IngredientDocument | null;
+  if (!ingredient || ingredient.familyId !== familyId) {
+    throw new Error("Ingredient not found");
+  }
+  return ingredient;
 }
 
 async function getVersionByNumber(
@@ -886,6 +902,7 @@ async function restoreRecipeFromSnapshot(
   const orderedParts = [...snapshot.parts].sort((a, b) => a.position - b.position);
   for (const part of orderedParts) {
     const partId = await ctx.db.insert("recipeParts", {
+      familyId: recipe.familyId,
       recipeId,
       name: part.name,
       position: part.position,
@@ -908,6 +925,7 @@ async function restoreRecipeFromSnapshot(
 
     if ("kcalPer100" in ingredient) {
       await ctx.db.insert("recipeIngredients", {
+        familyId: recipe.familyId,
         recipeId,
         partId,
         sourcePartId,
@@ -928,6 +946,7 @@ async function restoreRecipeFromSnapshot(
     }
 
     await ctx.db.insert("recipeIngredients", {
+      familyId: recipe.familyId,
       recipeId,
       partId,
       sourcePartId,
@@ -950,6 +969,7 @@ async function restoreRecipeFromSnapshot(
 async function upsertRecipeVersion(
   ctx: any,
   args: {
+    familyId?: Id<"families">;
     recipeId: Id<"recipes">;
     versionNumber: number;
     prompt?: string;
@@ -970,6 +990,7 @@ async function upsertRecipeVersion(
     return;
   }
   await ctx.db.insert("recipeVersions", {
+    familyId: args.familyId,
     recipeId: args.recipeId,
     versionNumber: args.versionNumber,
     prompt: args.prompt,
@@ -996,6 +1017,7 @@ async function ensureVersioningInitializedInternal(
   if (!existingV1) {
     const snapshot = await captureRecipeSnapshot(ctx, recipeId);
     await upsertRecipeVersion(ctx, {
+      familyId: recipe.familyId,
       recipeId,
       versionNumber: 1,
       snapshot,
@@ -1027,6 +1049,7 @@ async function syncCurrentRecipeVersionSnapshot(
     counters.currentVersionNumber,
   );
   await upsertRecipeVersion(ctx, {
+    familyId: recipe.familyId,
     recipeId,
     versionNumber: counters.currentVersionNumber,
     prompt: existing?.prompt,
@@ -1067,8 +1090,10 @@ export const list = query({
     }),
   ),
   handler: async (ctx) => {
+    const viewer = await requireViewer(ctx);
     const recipes = (await ctx.db
       .query("recipes")
+      .withIndex("by_familyId", (q) => q.eq("familyId", viewer.family._id))
       .order("desc")
       .collect()) as Array<RecipeDocument>;
     const result = [];
@@ -1118,8 +1143,9 @@ export const get = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
     const recipe = (await ctx.db.get(args.recipeId)) as RecipeDocument | null;
-    if (!recipe) {
+    if (!recipe || recipe.familyId !== viewer.family._id) {
       return null;
     }
     const mealTags = getNormalizedRecipeMealTags(recipe);
@@ -1151,11 +1177,14 @@ export const getVersions = query({
     }),
   ),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     const versions = (await ctx.db
       .query("recipeVersions")
       .withIndex("by_recipeId", (q) => q.eq("recipeId", args.recipeId))
       .collect()) as Array<RecipeVersionDocument>;
     return versions
+      .filter((version) => version.familyId === viewer.family._id)
       .sort((a, b) => b.versionNumber - a.versionNumber)
       .map((version) => ({
         _id: version._id,
@@ -1183,12 +1212,14 @@ export const getVersionSnapshot = query({
     v.null(),
   ),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     const version = await getVersionByNumber(
       ctx,
       args.recipeId,
       args.versionNumber,
     );
-    if (!version) {
+    if (!version || version.familyId !== viewer.family._id) {
       return null;
     }
     return {
@@ -1207,6 +1238,8 @@ export const ensureVersioningInitialized = mutation({
     latestVersionNumber: v.number(),
   }),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     return await ensureVersioningInitializedInternal(ctx, args.recipeId);
   },
 });
@@ -1218,6 +1251,8 @@ export const selectVersion = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     const counters = await ensureVersioningInitializedInternal(ctx, args.recipeId);
     if (
       !Number.isFinite(args.versionNumber) ||
@@ -1252,6 +1287,12 @@ export const commitEditedVersion = mutation({
     versionNumber: v.number(),
   }),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    const recipe = await requireRecipeForFamily(
+      ctx,
+      viewer.family._id,
+      args.recipeId,
+    );
     const counters = await ensureVersioningInitializedInternal(ctx, args.recipeId);
     const baseVersionNumber = Math.round(args.baseVersionNumber);
     if (
@@ -1283,6 +1324,7 @@ export const commitEditedVersion = mutation({
 
     const nextVersionNumber = baseVersionNumber + 1;
     await upsertRecipeVersion(ctx, {
+      familyId: recipe.familyId,
       recipeId: args.recipeId,
       versionNumber: nextVersionNumber,
       prompt: args.prompt,
@@ -1302,13 +1344,17 @@ export const getIngredients = query({
   args: { recipeId: v.id("recipes") },
   returns: v.array(ingredientDocumentValidator),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     const ingredients = await ctx.db
       .query("recipeIngredients")
       .withIndex("by_recipeId", (q) => q.eq("recipeId", args.recipeId))
       .collect();
-    return ingredients.map((ingredient) =>
-      normalizeIngredientDocument(ingredient as IngredientDocument),
-    );
+    return ingredients
+      .filter((ingredient) => ingredient.familyId === viewer.family._id)
+      .map((ingredient) =>
+        normalizeIngredientDocument(ingredient as IngredientDocument),
+      );
   },
 });
 
@@ -1316,6 +1362,8 @@ export const getParts = query({
   args: { recipeId: v.id("recipes") },
   returns: v.array(recipePartValidator),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     return await getRecipeParts(ctx, args.recipeId);
   },
 });
@@ -1324,8 +1372,9 @@ export const getIngredient = query({
   args: { ingredientId: v.id("recipeIngredients") },
   returns: v.union(ingredientDocumentValidator, v.null()),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
     const ingredient = await ctx.db.get(args.ingredientId);
-    if (!ingredient) {
+    if (!ingredient || ingredient.familyId !== viewer.family._id) {
       return null;
     }
     return normalizeIngredientDocument(ingredient as IngredientDocument);
@@ -1344,11 +1393,13 @@ export const create = mutation({
   },
   returns: v.id("recipes"),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
     const mealTags =
       args.mealTags && args.mealTags.length > 0
         ? sanitizeMealTags(args.mealTags)
         : inferMealTagsFromText(`${args.name} ${args.description}`);
     const recipeId = await ctx.db.insert("recipes", {
+      familyId: viewer.family._id,
       name: args.name,
       description: args.description,
       servings: args.servings,
@@ -1361,7 +1412,12 @@ export const create = mutation({
     if (args.parts && args.parts.length > 0) {
       const ordered = [...args.parts].sort((a, b) => a.position - b.position);
       for (const part of ordered) {
-        const partId = await createRecipePart(ctx, recipeId, part);
+        const partId = await createRecipePart(
+          ctx,
+          viewer.family._id,
+          recipeId,
+          part,
+        );
         partIdByName.set(part.name.toLowerCase(), partId);
       }
       for (const part of ordered) {
@@ -1370,6 +1426,7 @@ export const create = mutation({
         for (const ing of part.ingredients) {
           const normalized = normalizeIngredientInput(ing);
           await ctx.db.insert("recipeIngredients", {
+            familyId: viewer.family._id,
             recipeId,
             partId,
             sourcePartId: normalized.sourcePartName
@@ -1385,7 +1442,7 @@ export const create = mutation({
         }
       }
     } else {
-      const mainPartId = await createRecipePart(ctx, recipeId, {
+      const mainPartId = await createRecipePart(ctx, viewer.family._id, recipeId, {
         name: "Main",
         position: 0,
         scale: 1,
@@ -1394,6 +1451,7 @@ export const create = mutation({
       for (const ing of ingredients) {
         const normalized = normalizeIngredientInput(ing);
         await ctx.db.insert("recipeIngredients", {
+          familyId: viewer.family._id,
           recipeId,
           partId: mainPartId,
           name: normalized.name,
@@ -1405,6 +1463,7 @@ export const create = mutation({
     }
     const initialSnapshot = await captureRecipeSnapshot(ctx, recipeId);
     await upsertRecipeVersion(ctx, {
+      familyId: viewer.family._id,
       recipeId,
       versionNumber: 1,
       prompt: undefined,
@@ -1421,6 +1480,8 @@ export const updateMealTags = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     await ctx.db.patch(args.recipeId, {
       mealTags: sanitizeMealTags(args.mealTags),
     });
@@ -1436,10 +1497,12 @@ export const updateIngredientMacros = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const existing = await ctx.db.get(args.ingredientId);
-    if (!existing) {
-      throw new Error("Ingredient not found");
-    }
+    const viewer = await requireViewer(ctx);
+    const existing = await requireIngredientForFamily(
+      ctx,
+      viewer.family._id,
+      args.ingredientId,
+    );
     const normalizedExisting = normalizeIngredientDocument(
       existing as IngredientDocument,
     );
@@ -1456,6 +1519,7 @@ export const updateIngredientMacros = mutation({
     }
 
     await ctx.db.replace(args.ingredientId, {
+      familyId: normalizedExisting.familyId,
       recipeId: normalizedExisting.recipeId,
       partId: normalizedExisting.partId,
       sourcePartId: normalizedExisting.sourcePartId,
@@ -1478,13 +1542,15 @@ export const updateIngredientAmount = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
     if (!Number.isFinite(args.amount) || args.amount <= 0) {
       throw new Error("Amount must be a positive number");
     }
-    const existing = await ctx.db.get(args.ingredientId);
-    if (!existing) {
-      throw new Error("Ingredient not found");
-    }
+    const existing = await requireIngredientForFamily(
+      ctx,
+      viewer.family._id,
+      args.ingredientId,
+    );
     const recipeId = existing.recipeId as Id<"recipes">;
     await ctx.db.patch(args.ingredientId, {
       amount: args.amount,
@@ -1506,7 +1572,10 @@ export const createPart = mutation({
   },
   returns: v.id("recipeParts"),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     const partId = await ctx.db.insert("recipeParts", {
+      familyId: viewer.family._id,
       recipeId: args.recipeId,
       name: args.name,
       position: args.position,
@@ -1532,10 +1601,8 @@ export const updatePart = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const existing = await ctx.db.get(args.partId);
-    if (!existing) {
-      throw new Error("Part not found");
-    }
+    const viewer = await requireViewer(ctx);
+    const existing = await requirePartForFamily(ctx, viewer.family._id, args.partId);
     await ctx.db.patch(args.partId, {
       ...(args.name !== undefined ? { name: args.name } : {}),
       ...(args.position !== undefined ? { position: args.position } : {}),
@@ -1555,17 +1622,17 @@ export const deletePart = mutation({
   args: { partId: v.id("recipeParts") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const part = await ctx.db.get(args.partId);
-    if (!part) {
-      throw new Error("Part not found");
-    }
+    const viewer = await requireViewer(ctx);
+    const part = await requirePartForFamily(ctx, viewer.family._id, args.partId);
     const ingredientsInPart = await ctx.db
       .query("recipeIngredients")
       .withIndex("by_recipeId_and_partId", (q) =>
         q.eq("recipeId", part.recipeId).eq("partId", part._id),
       )
       .collect();
-    if (ingredientsInPart.length > 0) {
+    if (
+      ingredientsInPart.some((ingredient) => ingredient.familyId === viewer.family._id)
+    ) {
       throw new Error("Cannot delete a part that still has ingredients");
     }
     const linkedUsage = await ctx.db
@@ -1595,20 +1662,26 @@ export const updateIngredientPartUsage = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const ingredient = await ctx.db.get(args.ingredientId);
-    if (!ingredient) {
-      throw new Error("Ingredient not found");
-    }
+    const viewer = await requireViewer(ctx);
+    const ingredient = await requireIngredientForFamily(
+      ctx,
+      viewer.family._id,
+      args.ingredientId,
+    );
     const recipeId = ingredient.recipeId as Id<"recipes">;
     const partId = args.partId;
-    const part = await ctx.db.get(partId);
-    if (!part || part.recipeId !== recipeId) {
+    const part = await requirePartForFamily(ctx, viewer.family._id, partId);
+    if (part.recipeId !== recipeId) {
       throw new Error("Part does not belong to ingredient recipe");
     }
 
     if (args.sourcePartId) {
-      const sourcePart = await ctx.db.get(args.sourcePartId);
-      if (!sourcePart || sourcePart.recipeId !== recipeId) {
+      const sourcePart = await requirePartForFamily(
+        ctx,
+        viewer.family._id,
+        args.sourcePartId,
+      );
+      if (sourcePart.recipeId !== recipeId) {
         throw new Error("Source part must belong to same recipe");
       }
       if (sourcePart._id === partId) {
@@ -1667,6 +1740,8 @@ export const remove = mutation({
   args: { recipeId: v.id("recipes") },
   returns: v.null(),
   handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    await requireRecipeForFamily(ctx, viewer.family._id, args.recipeId);
     const ingredients = await ctx.db
       .query("recipeIngredients")
       .withIndex("by_recipeId", (q) => q.eq("recipeId", args.recipeId))
@@ -1693,37 +1768,68 @@ export const remove = mutation({
   },
 });
 
-function buildGoalsContext(settings: GoalsSettings): string {
+function buildFamilyGoalsContextFromQuery(context: {
+  memberCount: number;
+  membersWithTargets: number;
+  targets: {
+    kcal: number | null;
+    protein: number | null;
+    carbs: number | null;
+    fat: number | null;
+    macroTolerancePct: number;
+  };
+  preferences: {
+    hardExclusions: Array<string>;
+    veganVotes: number;
+    vegetarianVotes: number;
+    notes: Array<string>;
+  };
+}): string {
   const lines: Array<string> = [];
-  const { profile, targets } = settings;
+  lines.push(`- Household members: ${context.memberCount}`);
+  lines.push(`- Members with targets: ${context.membersWithTargets}`);
 
-  if (profile.age !== null) lines.push(`- Age: ${profile.age}`);
-  if (profile.sex !== null) lines.push(`- Sex: ${profile.sex}`);
-  if (profile.heightCm !== null) lines.push(`- Height: ${profile.heightCm} cm`);
-  if (profile.weightKg !== null) lines.push(`- Weight: ${profile.weightKg} kg`);
-  if (profile.bodyFatPct !== null)
-    lines.push(`- Body fat: ${profile.bodyFatPct}%`);
-  if (profile.activityLevel !== null)
-    lines.push(`- Activity level: ${profile.activityLevel}`);
-  if (profile.goalDirection !== null)
-    lines.push(`- Goal direction: ${profile.goalDirection}`);
+  if (context.targets.kcal !== null) {
+    lines.push(`- Household daily target kcal: ${context.targets.kcal}`);
+  }
+  if (context.targets.protein !== null) {
+    lines.push(`- Household daily target protein: ${context.targets.protein} g`);
+  }
+  if (context.targets.carbs !== null) {
+    lines.push(`- Household daily target carbs: ${context.targets.carbs} g`);
+  }
+  if (context.targets.fat !== null) {
+    lines.push(`- Household daily target fat: ${context.targets.fat} g`);
+  }
+  lines.push(`- Macro tolerance: ${context.targets.macroTolerancePct}%`);
 
-  if (targets.kcal !== null) lines.push(`- Daily target kcal: ${targets.kcal}`);
-  if (targets.protein !== null)
-    lines.push(`- Daily target protein: ${targets.protein} g`);
-  if (targets.carbs !== null)
-    lines.push(`- Daily target carbs: ${targets.carbs} g`);
-  if (targets.fat !== null) lines.push(`- Daily target fat: ${targets.fat} g`);
-  lines.push(`- Macro tolerance: ${targets.macroTolerancePct}%`);
+  if (context.preferences.hardExclusions.length > 0) {
+    lines.push(
+      `- Hard exclusions: ${context.preferences.hardExclusions.join(", ")}`,
+    );
+  }
+  if (context.preferences.veganVotes > 0) {
+    lines.push(
+      `- Votes for more vegan meals: ${context.preferences.veganVotes}`,
+    );
+  }
+  if (context.preferences.vegetarianVotes > 0) {
+    lines.push(
+      `- Votes for more vegetarian meals: ${context.preferences.vegetarianVotes}`,
+    );
+  }
+  if (context.preferences.notes.length > 0) {
+    lines.push(`- Additional notes: ${context.preferences.notes.join(" | ")}`);
+  }
 
-  if (lines.length === 1) {
+  if (lines.length === 3) {
     return `
-User nutrition goals context:
-- No nutrition goals are configured yet.`;
+Family meal planning context:
+- No family nutrition targets are configured yet.`;
   }
 
   return `
-User nutrition goals context:
+Family meal planning context:
 ${lines.join("\n")}`;
 }
 
@@ -2036,8 +2142,8 @@ export const generate = action({
 
     const goalsContext =
       args.includeGoalsContext === true
-        ? buildGoalsContext(
-            await ctx.runQuery(api.nutritionGoals.getSettings, {}),
+        ? buildFamilyGoalsContextFromQuery(
+            await ctx.runQuery(api.nutritionGoals.getFamilyPlanningContext, {}),
           )
         : "";
     const strictPreserveMode = detectStructuredRecipeInput(args.description);
@@ -2186,10 +2292,13 @@ export const editWithPrompt = action({
     }
 
     const client = createMistralClient();
+    const goalsContext = buildFamilyGoalsContextFromQuery(
+      await ctx.runQuery(api.nutritionGoals.getFamilyPlanningContext, {}),
+    );
     const editPrompt = recipeEditPrompt(
       snapshotToPromptRecipe(baseVersion.snapshot),
       userPrompt,
-      "",
+      goalsContext,
     );
     const modelResponse = await requestRecipeJsonFromModel(client, editPrompt);
     const parsedServings =

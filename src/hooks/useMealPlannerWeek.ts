@@ -25,6 +25,7 @@ export function useMealPlannerWeek() {
 
   const startDate = formatDateKey(weekDates[0]);
   const endDate = formatDateKey(weekDates[6]);
+  const weekDateKeys = weekDates.map((date) => formatDateKey(date));
   const currentDateKey = formatDateKey(weekDates[selectedDay]);
 
   const weekLabel = `${formatMonthDay(weekDates[0])} - ${formatMonthDay(
@@ -37,6 +38,7 @@ export function useMealPlannerWeek() {
     selectedDay,
     setSelectedDay,
     weekDates,
+    weekDateKeys,
     startDate,
     endDate,
     currentDateKey,

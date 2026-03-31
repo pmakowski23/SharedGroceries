@@ -24,12 +24,13 @@ export function useGroceryListViewModel() {
     store.setQuery(api.groceries.getGroceryList, {}, next);
   });
 
-  const categoriesWithItems = (groceryData?.categories ?? []).filter(
-    (category) => (groceryData?.itemsByCategory[category.name] || []).length > 0,
-  );
+  const categoriesWithItems = groceryData?.categories ?? [];
 
   const hasCompleted = Object.values(groceryData?.itemsByCategory ?? {}).some(
     (arr) => arr.some((it) => it.isCompleted),
+  );
+  const hasItems = Object.values(groceryData?.itemsByCategory ?? {}).some(
+    (arr) => arr.length > 0,
   );
 
   const clearCompletedForCurrentStore = () => {
@@ -44,6 +45,7 @@ export function useGroceryListViewModel() {
     toggleStoreManager: () => setShowStoreManager((prev) => !prev),
     categoriesWithItems,
     hasCompleted,
+    hasItems,
     clearCompletedForCurrentStore,
   };
 }

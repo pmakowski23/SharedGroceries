@@ -103,7 +103,7 @@ export function RecipeAIGenerator({
               htmlFor="include-goals-context"
               className="text-sm text-muted-foreground"
             >
-              Include my nutrition goals in AI prompt
+              Include family targets and preferences in AI prompt
             </Label>
             <Switch
               id="include-goals-context"

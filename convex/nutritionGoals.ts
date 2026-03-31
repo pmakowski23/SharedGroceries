@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { listFamilyMemberProfiles, requireViewer } from "./families";
 
 const activityMultipliers = {
   sedentary: 1.2,
@@ -39,6 +40,113 @@ function normalizeSettingNumber(value: number | undefined): number | null {
   return typeof value === "number" ? value : null;
 }
 
+function buildPreferences(profile: {
+  dietPreference?: string;
+  excludeBeef?: boolean;
+  excludePork?: boolean;
+  excludeSeafood?: boolean;
+  excludeDairy?: boolean;
+  excludeEggs?: boolean;
+  excludeGluten?: boolean;
+  excludeNuts?: boolean;
+  preferenceNotes?: string;
+}) {
+  return {
+    dietPreference: profile.dietPreference ?? "none",
+    excludeBeef: profile.excludeBeef ?? false,
+    excludePork: profile.excludePork ?? false,
+    excludeSeafood: profile.excludeSeafood ?? false,
+    excludeDairy: profile.excludeDairy ?? false,
+    excludeEggs: profile.excludeEggs ?? false,
+    excludeGluten: profile.excludeGluten ?? false,
+    excludeNuts: profile.excludeNuts ?? false,
+    notes: profile.preferenceNotes ?? "",
+  };
+}
+
+function aggregateFamilyTargets(
+  profiles: Array<{
+    targetKcal?: number;
+    targetProtein?: number;
+    targetCarbs?: number;
+    targetFat?: number;
+    macroTolerancePct?: number;
+    dietPreference?: string;
+    excludeBeef?: boolean;
+    excludePork?: boolean;
+    excludeSeafood?: boolean;
+    excludeDairy?: boolean;
+    excludeEggs?: boolean;
+    excludeGluten?: boolean;
+    excludeNuts?: boolean;
+    preferenceNotes?: string;
+  }>,
+) {
+  const completeProfiles = profiles.filter(
+    (profile) =>
+      profile.targetKcal !== undefined &&
+      profile.targetProtein !== undefined &&
+      profile.targetCarbs !== undefined &&
+      profile.targetFat !== undefined,
+  );
+
+  const totals = completeProfiles.reduce(
+    (acc, profile) => ({
+      kcal: acc.kcal + (profile.targetKcal ?? 0),
+      protein: acc.protein + (profile.targetProtein ?? 0),
+      carbs: acc.carbs + (profile.targetCarbs ?? 0),
+      fat: acc.fat + (profile.targetFat ?? 0),
+    }),
+    { kcal: 0, protein: 0, carbs: 0, fat: 0 },
+  );
+
+  const hardExclusions = Array.from(
+    new Set(
+      [
+        profiles.some((profile) => profile.excludeBeef) ? "Beef" : null,
+        profiles.some((profile) => profile.excludePork) ? "Pork" : null,
+        profiles.some((profile) => profile.excludeSeafood) ? "Seafood" : null,
+        profiles.some((profile) => profile.excludeDairy) ? "Dairy" : null,
+        profiles.some((profile) => profile.excludeEggs) ? "Eggs" : null,
+        profiles.some((profile) => profile.excludeGluten) ? "Gluten" : null,
+        profiles.some((profile) => profile.excludeNuts) ? "Nuts" : null,
+      ].filter((value): value is string => value !== null),
+    ),
+  );
+
+  return {
+    memberCount: profiles.length,
+    membersWithTargets: completeProfiles.length,
+    targets: {
+      kcal: completeProfiles.length > 0 ? totals.kcal : null,
+      protein: completeProfiles.length > 0 ? totals.protein : null,
+      carbs: completeProfiles.length > 0 ? totals.carbs : null,
+      fat: completeProfiles.length > 0 ? totals.fat : null,
+      macroTolerancePct:
+        profiles.reduce(
+          (acc, profile) => Math.max(acc, profile.macroTolerancePct ?? 5),
+          5,
+        ) ?? 5,
+    },
+    preferences: {
+      hardExclusions,
+      veganVotes: profiles.filter(
+        (profile) =>
+          profile.dietPreference === "vegan" ||
+          profile.dietPreference === "moreVegan",
+      ).length,
+      vegetarianVotes: profiles.filter(
+        (profile) =>
+          profile.dietPreference === "vegetarian" ||
+          profile.dietPreference === "moreVegetarian",
+      ).length,
+      notes: profiles
+        .map((profile) => profile.preferenceNotes?.trim())
+        .filter((value): value is string => Boolean(value)),
+    },
+  };
+}
+
 export const getSettings = query({
   args: {},
   returns: v.object({
@@ -70,27 +178,66 @@ export const getSettings = query({
       fat: v.union(v.number(), v.null()),
       macroTolerancePct: v.number(),
     }),
+    preferences: v.object({
+      dietPreference: v.string(),
+      excludeBeef: v.boolean(),
+      excludePork: v.boolean(),
+      excludeSeafood: v.boolean(),
+      excludeDairy: v.boolean(),
+      excludeEggs: v.boolean(),
+      excludeGluten: v.boolean(),
+      excludeNuts: v.boolean(),
+      notes: v.string(),
+    }),
   }),
   handler: async (ctx) => {
-    const settings = await ctx.db.query("appSettings").first();
+    const viewer = await requireViewer(ctx);
+    const profile = viewer.memberProfile;
     return {
       profile: {
-        age: normalizeSettingNumber(settings?.profileAge),
-        sex: settings?.profileSex ?? null,
-        heightCm: normalizeSettingNumber(settings?.profileHeightCm),
-        weightKg: normalizeSettingNumber(settings?.profileWeightKg),
-        bodyFatPct: normalizeSettingNumber(settings?.profileBodyFatPct),
-        activityLevel: settings?.profileActivityLevel ?? null,
-        goalDirection: settings?.profileGoalDirection ?? null,
+        age: normalizeSettingNumber(profile?.profileAge),
+        sex: profile?.profileSex ?? null,
+        heightCm: normalizeSettingNumber(profile?.profileHeightCm),
+        weightKg: normalizeSettingNumber(profile?.profileWeightKg),
+        bodyFatPct: normalizeSettingNumber(profile?.profileBodyFatPct),
+        activityLevel: profile?.profileActivityLevel ?? null,
+        goalDirection: profile?.profileGoalDirection ?? null,
       },
       targets: {
-        kcal: normalizeSettingNumber(settings?.targetKcal),
-        protein: normalizeSettingNumber(settings?.targetProtein),
-        carbs: normalizeSettingNumber(settings?.targetCarbs),
-        fat: normalizeSettingNumber(settings?.targetFat),
-        macroTolerancePct: settings?.macroTolerancePct ?? 5,
+        kcal: normalizeSettingNumber(profile?.targetKcal),
+        protein: normalizeSettingNumber(profile?.targetProtein),
+        carbs: normalizeSettingNumber(profile?.targetCarbs),
+        fat: normalizeSettingNumber(profile?.targetFat),
+        macroTolerancePct: profile?.macroTolerancePct ?? 5,
       },
+      preferences: buildPreferences(profile ?? {}),
     };
+  },
+});
+
+export const getFamilyPlanningContext = query({
+  args: {},
+  returns: v.object({
+    memberCount: v.number(),
+    membersWithTargets: v.number(),
+    targets: v.object({
+      kcal: v.union(v.number(), v.null()),
+      protein: v.union(v.number(), v.null()),
+      carbs: v.union(v.number(), v.null()),
+      fat: v.union(v.number(), v.null()),
+      macroTolerancePct: v.number(),
+    }),
+    preferences: v.object({
+      hardExclusions: v.array(v.string()),
+      veganVotes: v.number(),
+      vegetarianVotes: v.number(),
+      notes: v.array(v.string()),
+    }),
+  }),
+  handler: async (ctx) => {
+    const viewer = await requireViewer(ctx);
+    const profiles = await listFamilyMemberProfiles(ctx, viewer.family._id);
+    return aggregateFamilyTargets(profiles);
   },
 });
 
@@ -117,8 +264,11 @@ export const updateProfile = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const settings = await ctx.db.query("appSettings").first();
-    const patch = {
+    const viewer = await requireViewer(ctx);
+    if (!viewer.memberProfile) {
+      throw new Error("Member profile not found");
+    }
+    await ctx.db.patch(viewer.memberProfile._id, {
       profileAge: args.age,
       profileSex: args.sex,
       profileHeightCm: args.heightCm,
@@ -127,19 +277,46 @@ export const updateProfile = mutation({
       profileActivityLevel: args.activityLevel,
       profileGoalDirection: args.goalDirection,
       macroTolerancePct:
-        args.macroTolerancePct ?? settings?.macroTolerancePct ?? 5,
-    };
+        args.macroTolerancePct ?? viewer.memberProfile.macroTolerancePct ?? 5,
+    });
+    return null;
+  },
+});
 
-    if (settings) {
-      await ctx.db.patch(settings._id, patch);
-      return null;
+export const updatePreferences = mutation({
+  args: {
+    dietPreference: v.union(
+      v.literal("none"),
+      v.literal("moreVegetarian"),
+      v.literal("moreVegan"),
+      v.literal("vegetarian"),
+      v.literal("vegan"),
+    ),
+    excludeBeef: v.boolean(),
+    excludePork: v.boolean(),
+    excludeSeafood: v.boolean(),
+    excludeDairy: v.boolean(),
+    excludeEggs: v.boolean(),
+    excludeGluten: v.boolean(),
+    excludeNuts: v.boolean(),
+    notes: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const viewer = await requireViewer(ctx);
+    if (!viewer.memberProfile) {
+      throw new Error("Member profile not found");
     }
-
-    await ctx.db.insert("appSettings", {
-      ...patch,
-      password: undefined,
-      currentStoreId: undefined,
-      selectedModel: undefined,
+    await ctx.db.patch(viewer.memberProfile._id, {
+      dietPreference: args.dietPreference,
+      excludeBeef: args.excludeBeef,
+      excludePork: args.excludePork,
+      excludeSeafood: args.excludeSeafood,
+      excludeDairy: args.excludeDairy,
+      excludeEggs: args.excludeEggs,
+      excludeGluten: args.excludeGluten,
+      excludeNuts: args.excludeNuts,
+      preferenceNotes: args.notes.trim(),
     });
     return null;
   },
@@ -154,26 +331,17 @@ export const setMacroTargets = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const settings = await ctx.db.query("appSettings").first();
-    const patch = {
+    const viewer = await requireViewer(ctx);
+    if (!viewer.memberProfile) {
+      throw new Error("Member profile not found");
+    }
+    await ctx.db.patch(viewer.memberProfile._id, {
       targetKcal: round0(args.protein * 4 + args.carbs * 4 + args.fat * 9),
       targetProtein: round0(args.protein),
       targetCarbs: round0(args.carbs),
       targetFat: round0(args.fat),
       macroTolerancePct:
-        args.macroTolerancePct ?? settings?.macroTolerancePct ?? 5,
-    };
-
-    if (settings) {
-      await ctx.db.patch(settings._id, patch);
-      return null;
-    }
-
-    await ctx.db.insert("appSettings", {
-      ...patch,
-      password: undefined,
-      currentStoreId: undefined,
-      selectedModel: undefined,
+        args.macroTolerancePct ?? viewer.memberProfile.macroTolerancePct ?? 5,
     });
     return null;
   },
@@ -197,14 +365,15 @@ export const suggestTargets = query({
     ),
   }),
   handler: async (ctx) => {
-    const settings = await ctx.db.query("appSettings").first();
+    const viewer = await requireViewer(ctx);
+    const profile = viewer.memberProfile;
     if (
-      !settings?.profileAge ||
-      !settings.profileSex ||
-      !settings.profileHeightCm ||
-      !settings.profileWeightKg ||
-      !settings.profileActivityLevel ||
-      !settings.profileGoalDirection
+      !profile?.profileAge ||
+      !profile.profileSex ||
+      !profile.profileHeightCm ||
+      !profile.profileWeightKg ||
+      !profile.profileActivityLevel ||
+      !profile.profileGoalDirection
     ) {
       return {
         canSuggest: false,
@@ -216,12 +385,12 @@ export const suggestTargets = query({
       };
     }
 
-    const weightKg = settings.profileWeightKg;
-    const heightCm = settings.profileHeightCm;
-    const age = settings.profileAge;
-    const sex = settings.profileSex;
-    const activityLevel = settings.profileActivityLevel;
-    const goalDirection = settings.profileGoalDirection;
+    const weightKg = profile.profileWeightKg;
+    const heightCm = profile.profileHeightCm;
+    const age = profile.profileAge;
+    const sex = profile.profileSex;
+    const activityLevel = profile.profileActivityLevel;
+    const goalDirection = profile.profileGoalDirection;
 
     const bmr =
       sex === "male"
@@ -238,31 +407,34 @@ export const suggestTargets = query({
     const amdrCarbsMax = (targetKcal * 0.65) / 4;
 
     const protein = clamp(
-      weightKg * proteinByGoal[goalDirection],
+      proteinByGoal[goalDirection] * weightKg,
       amdrProteinMin,
       amdrProteinMax,
     );
-    let fat = clamp(
-      weightKg * fatByGoal[goalDirection],
+    const fat = clamp(
+      fatByGoal[goalDirection] * weightKg,
       amdrFatMin,
       amdrFatMax,
     );
     let carbs = (targetKcal - protein * 4 - fat * 9) / 4;
     carbs = clamp(carbs, amdrCarbsMin, amdrCarbsMax);
 
-    let usedKcal = protein * 4 + carbs * 4 + fat * 9;
+    const usedKcal = protein * 4 + carbs * 4 + fat * 9;
     let kcalDelta = targetKcal - usedKcal;
-    fat = clamp(fat + kcalDelta / 9, amdrFatMin, amdrFatMax);
-
-    usedKcal = protein * 4 + carbs * 4 + fat * 9;
-    kcalDelta = targetKcal - usedKcal;
-    carbs = clamp(carbs + kcalDelta / 4, amdrCarbsMin, amdrCarbsMax);
+    if (kcalDelta > 0) {
+      carbs += kcalDelta / 4;
+    }
+    const repairedKcal = protein * 4 + carbs * 4 + fat * 9;
+    kcalDelta = targetKcal - repairedKcal;
+    if (Math.abs(kcalDelta) > 1) {
+      carbs += kcalDelta / 4;
+    }
 
     return {
       canSuggest: true,
       reason: null,
-      bmr: Math.round(bmr),
-      tdee: Math.round(tdee),
+      bmr: round0(bmr),
+      tdee: round0(tdee),
       suggestion: {
         kcal: targetKcal,
         protein: round0(protein),

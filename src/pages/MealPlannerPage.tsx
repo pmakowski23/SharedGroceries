@@ -16,6 +16,7 @@ export function MealPlannerPage() {
     selectedDay,
     setSelectedDay,
     weekDates,
+    weekDateKeys,
     startDate,
     endDate,
     currentDateKey,
@@ -23,16 +24,20 @@ export function MealPlannerPage() {
   } = useMealPlannerWeek();
 
   const mealPlan = useQuery(api.mealPlans.getWeek, { startDate, endDate });
-  const goalSettings = useQuery(api.nutritionGoals.getSettings, {});
-  const targets = goalSettings!.targets;
-
-  const tolerancePct = targets.macroTolerancePct;
-  const targetMacros = {
-    kcal: Number(targets.kcal),
-    protein: Number(targets.protein),
-    carbs: Number(targets.carbs),
-    fat: Number(targets.fat),
-  };
+  const familyPlanning = useQuery(api.nutritionGoals.getFamilyPlanningContext, {});
+  const tolerancePct = familyPlanning?.targets.macroTolerancePct ?? 5;
+  const targetMacros =
+    familyPlanning?.targets.kcal !== null &&
+    familyPlanning?.targets.protein !== null &&
+    familyPlanning?.targets.carbs !== null &&
+    familyPlanning?.targets.fat !== null
+      ? {
+          kcal: familyPlanning.targets.kcal,
+          protein: familyPlanning.targets.protein,
+          carbs: familyPlanning.targets.carbs,
+          fat: familyPlanning.targets.fat,
+        }
+      : null;
   const { dayMacros, dayStatusByDate } = useDayMacroStatus({
     mealPlan,
     currentDateKey,
@@ -61,11 +66,18 @@ export function MealPlannerPage() {
         tolerancePct={tolerancePct}
       />
       <GenerateActions
-        targetMacrosAvailable
+        targetMacrosAvailable={targetMacros !== null}
         currentDateKey={currentDateKey}
         startDate={startDate}
         endDate={endDate}
+        weekDateKeys={weekDateKeys}
       />
+      {targetMacros === null && (
+        <div className="mb-4 rounded-2xl border border-accent/20 bg-accent/5 p-4 text-sm text-muted-foreground">
+          Save daily targets for at least one family member in the Family tab to
+          generate shared meal plans.
+        </div>
+      )}
       <MealSlots
         mealPlan={mealPlan}
         currentDateKey={currentDateKey}

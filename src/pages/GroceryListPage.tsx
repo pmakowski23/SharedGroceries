@@ -12,6 +12,7 @@ export function GroceryListPage() {
     toggleStoreManager,
     categoriesWithItems,
     hasCompleted,
+    hasItems,
     clearCompletedForCurrentStore,
   } = useGroceryListViewModel();
 
@@ -97,14 +98,15 @@ export function GroceryListPage() {
         itemsByCategory={groceryData.itemsByCategory}
       />
 
-      {categoriesWithItems.length === 0 && (
+      {!hasItems && (
         <div className="text-center py-12">
           <div className="text-6xl mb-4">🛒</div>
           <h3 className="mb-2 text-lg font-semibold">
             Your grocery list is empty
           </h3>
           <p className="text-muted-foreground">
-            Add your first item above to get started!
+            Add your first item above, or drag items between categories to teach
+            the shared family layout.
           </p>
         </div>
       )}
