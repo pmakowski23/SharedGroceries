@@ -11,14 +11,17 @@ import {
 import { authComponent } from "./auth";
 import { authSiteUrl } from "./authSite";
 import { env } from "./env";
+import { decideFamilyBootstrap } from "./lib/familyBootstrap";
 import { createDefaultCategories } from "./lib/groceryTaxonomy";
 import { nowEpochMs } from "./lib/time";
 
 const resendApiKey = env.RESEND_API_KEY;
 const authEmailFrom = env.AUTH_EMAIL_FROM;
 
+type AuthUser = Awaited<ReturnType<typeof authComponent.getAuthUser>>;
+
 type ViewerContext = {
-  authUser: Awaited<ReturnType<typeof authComponent.getAuthUser>>;
+  authUser: AuthUser;
   userProfile: Doc<"userProfiles">;
   membership: Doc<"familyMembers">;
   family: Doc<"families">;
@@ -98,17 +101,39 @@ async function sendInviteEmail(args: {
   return response.ok;
 }
 
-async function getOrCreateUserProfile(
-  ctx: MutationCtx,
-  authUser: Awaited<ReturnType<typeof authComponent.getAuthUser>>,
+async function getUserProfileByAuthUserId(
+  ctx: QueryOrMutationCtx,
+  betterAuthUserId: string,
 ) {
-  const existing = await ctx.db
+  return await ctx.db
     .query("userProfiles")
     .withIndex("by_betterAuthUserId", (q) =>
-      q.eq("betterAuthUserId", authUser._id),
+      q.eq("betterAuthUserId", betterAuthUserId),
     )
     .first();
+}
 
+async function getMembershipByAuthUserId(
+  ctx: QueryOrMutationCtx,
+  betterAuthUserId: string,
+) {
+  return await ctx.db
+    .query("familyMembers")
+    .withIndex("by_betterAuthUserId", (q) =>
+      q.eq("betterAuthUserId", betterAuthUserId),
+    )
+    .first();
+}
+
+async function getInviteByToken(ctx: QueryOrMutationCtx, token: string) {
+  return await ctx.db
+    .query("familyInvites")
+    .withIndex("by_token", (q) => q.eq("token", token))
+    .first();
+}
+
+async function getOrCreateUserProfile(ctx: MutationCtx, authUser: AuthUser) {
+  const existing = await getUserProfileByAuthUserId(ctx, authUser._id);
   const patch = {
     email: normalizeEmail(authUser.email),
     name: authUser.name || undefined,
@@ -124,7 +149,6 @@ async function getOrCreateUserProfile(
 
   const userProfileId = await ctx.db.insert("userProfiles", {
     betterAuthUserId: authUser._id,
-    currentFamilyId: undefined,
     createdAt: nowEpochMs(),
     ...patch,
   });
@@ -135,7 +159,7 @@ async function getOrCreateUserProfile(
 async function ensureMemberProfile(
   ctx: MutationCtx,
   familyId: Id<"families">,
-  authUser: Awaited<ReturnType<typeof authComponent.getAuthUser>>,
+  authUser: AuthUser,
 ) {
   const existing = await ctx.db
     .query("memberProfiles")
@@ -175,7 +199,7 @@ async function ensureMemberProfile(
 
 async function createFreshFamilyWorkspace(
   ctx: MutationCtx,
-  authUser: Awaited<ReturnType<typeof authComponent.getAuthUser>>,
+  authUser: AuthUser,
   userProfile: Doc<"userProfiles">,
 ) {
   const now = nowEpochMs();
@@ -201,211 +225,60 @@ async function createFreshFamilyWorkspace(
     role: "owner",
     joinedAt: now,
   });
-  await ctx.db.patch(userProfile._id, {
-    currentFamilyId: familyId,
-  });
   await ensureMemberProfile(ctx, familyId, authUser);
 
   return familyId;
 }
 
-async function migrateLegacyWorkspace(
-  ctx: MutationCtx,
-  authUser: Awaited<ReturnType<typeof authComponent.getAuthUser>>,
-  userProfile: Doc<"userProfiles">,
-) {
-  const settings = await ctx.db.query("appSettings").first();
-  if (settings?.migratedFamilyId) {
-    return null;
-  }
+async function acceptInviteForUser(args: {
+  ctx: MutationCtx;
+  authUser: AuthUser;
+  invite: Doc<"familyInvites">;
+  existingMembership: Doc<"familyMembers"> | null;
+}) {
+  const { ctx, authUser, invite, existingMembership } = args;
 
-  const stores = await ctx.db.query("stores").collect();
-  const recipes = await ctx.db.query("recipes").collect();
-  const groceryItems = await ctx.db.query("groceryItems").collect();
-  const hasLegacyData =
-    stores.some((store) => !store.familyId) ||
-    recipes.some((recipe) => !recipe.familyId) ||
-    groceryItems.some((item) => !item.familyId);
+  if (!existingMembership) {
+    await ctx.db.insert("familyMembers", {
+      familyId: invite.familyId,
+      betterAuthUserId: authUser._id,
+      role: "member",
+      joinedAt: nowEpochMs(),
+    });
+  }
 
   if (
-    !hasLegacyData &&
-    stores.length === 0 &&
-    recipes.length === 0 &&
-    groceryItems.length === 0
+    invite.status !== "accepted" ||
+    invite.acceptedByUserId !== authUser._id
   ) {
-    return null;
-  }
-
-  const now = nowEpochMs();
-  const familyId = await ctx.db.insert("families", {
-    name: buildFamilyName(authUser.name || userProfile.name),
-    createdByUserId: authUser._id,
-    createdAt: now,
-  });
-
-  await ctx.db.insert("familyMembers", {
-    familyId,
-    betterAuthUserId: authUser._id,
-    role: "owner",
-    joinedAt: now,
-  });
-  await ctx.db.patch(userProfile._id, {
-    currentFamilyId: familyId,
-  });
-
-  for (const store of stores) {
-    if (!store.familyId) {
-      await ctx.db.patch(store._id, {
-        familyId,
-      });
-    }
-  }
-
-  const categories = await ctx.db.query("categories").collect();
-  for (const category of categories) {
-    if (!category.familyId) {
-      await ctx.db.patch(category._id, {
-        familyId,
-      });
-    }
-  }
-
-  for (const item of groceryItems) {
-    if (!item.familyId) {
-      await ctx.db.patch(item._id, {
-        familyId,
-      });
-    }
-  }
-
-  for (const recipe of recipes) {
-    if (!recipe.familyId) {
-      await ctx.db.patch(recipe._id, {
-        familyId,
-      });
-    }
-  }
-
-  const recipeVersions = await ctx.db.query("recipeVersions").collect();
-  for (const version of recipeVersions) {
-    if (!version.familyId) {
-      await ctx.db.patch(version._id, {
-        familyId,
-      });
-    }
-  }
-
-  const recipeParts = await ctx.db.query("recipeParts").collect();
-  for (const part of recipeParts) {
-    if (!part.familyId) {
-      await ctx.db.patch(part._id, {
-        familyId,
-      });
-    }
-  }
-
-  const recipeIngredients = await ctx.db.query("recipeIngredients").collect();
-  for (const ingredient of recipeIngredients) {
-    if (!ingredient.familyId) {
-      await ctx.db.patch(ingredient._id, {
-        familyId,
-      });
-    }
-  }
-
-  const mealPlans = await ctx.db.query("mealPlans").collect();
-  for (const mealPlan of mealPlans) {
-    if (!mealPlan.familyId) {
-      await ctx.db.patch(mealPlan._id, {
-        familyId,
-      });
-    }
-  }
-
-  const targetStoreId =
-    settings?.currentStoreId ??
-    stores.find((store) => store.isDefault)?._id ??
-    stores[0]?._id;
-  await ctx.db.patch(familyId, {
-    currentStoreId: targetStoreId,
-  });
-
-  const memberProfileId = await ctx.db.insert("memberProfiles", {
-    familyId,
-    betterAuthUserId: authUser._id,
-    displayName: authUser.name || authUser.email || "Family member",
-    profileAge: settings?.profileAge,
-    profileSex: settings?.profileSex,
-    profileHeightCm: settings?.profileHeightCm,
-    profileWeightKg: settings?.profileWeightKg,
-    profileBodyFatPct: settings?.profileBodyFatPct,
-    profileActivityLevel: settings?.profileActivityLevel,
-    profileGoalDirection: settings?.profileGoalDirection,
-    macroTolerancePct: settings?.macroTolerancePct ?? 5,
-    targetKcal: settings?.targetKcal,
-    targetProtein: settings?.targetProtein,
-    targetCarbs: settings?.targetCarbs,
-    targetFat: settings?.targetFat,
-    dietPreference: "none",
-    excludeBeef: false,
-    excludePork: false,
-    excludeSeafood: false,
-    excludeDairy: false,
-    excludeEggs: false,
-    excludeGluten: false,
-    excludeNuts: false,
-    preferenceNotes: "",
-  });
-
-  if (settings) {
-    await ctx.db.patch(settings._id, {
-      migratedFamilyId: familyId,
-      migratedAt: now,
-      password: undefined,
-      currentStoreId: undefined,
-    });
-  } else {
-    await ctx.db.insert("appSettings", {
-      migratedFamilyId: familyId,
-      migratedAt: now,
+    await ctx.db.patch(invite._id, {
+      status: "accepted",
+      acceptedAt: nowEpochMs(),
+      acceptedByUserId: authUser._id,
     });
   }
 
-  return {
-    familyId,
-    memberProfileId,
-  };
+  await ensureMemberProfile(ctx, invite.familyId, authUser);
+  return invite.familyId;
 }
 
 export async function requireViewer(
   ctx: QueryOrMutationCtx,
 ): Promise<ViewerContext> {
   const authUser = await authComponent.getAuthUser(ctx as any);
-  const userProfile = await ctx.db
-    .query("userProfiles")
-    .withIndex("by_betterAuthUserId", (q) =>
-      q.eq("betterAuthUserId", authUser._id),
-    )
-    .first();
-
-  if (!userProfile?.currentFamilyId) {
+  const membership = await getMembershipByAuthUserId(ctx, authUser._id);
+  if (!membership) {
     throw new ConvexError("Family workspace is not initialized");
   }
 
-  const family = await ctx.db.get(userProfile.currentFamilyId);
+  const family = await ctx.db.get(membership.familyId);
   if (!family) {
     throw new ConvexError("Family not found");
   }
 
-  const membership = await ctx.db
-    .query("familyMembers")
-    .withIndex("by_familyId_and_betterAuthUserId", (q) =>
-      q.eq("familyId", family._id).eq("betterAuthUserId", authUser._id),
-    )
-    .first();
-
-  if (!membership) {
-    throw new ConvexError("Family membership not found");
+  const userProfile = await getUserProfileByAuthUserId(ctx, authUser._id);
+  if (!userProfile) {
+    throw new ConvexError("User profile not found");
   }
 
   const memberProfile = await ctx.db
@@ -438,45 +311,69 @@ export async function listFamilyMemberProfiles(
     .collect();
 }
 
-export const initializeCurrentUser = mutation({
-  args: {},
+export const bootstrapCurrentUser = mutation({
+  args: {
+    inviteToken: v.optional(v.string()),
+  },
   returns: v.object({
     familyId: v.id("families"),
   }),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     const authUser = await authComponent.getAuthUser(ctx as any);
     const userProfile = await getOrCreateUserProfile(ctx, authUser);
+    const existingMembership = await getMembershipByAuthUserId(ctx, authUser._id);
+    const invite = args.inviteToken
+      ? await getInviteByToken(ctx, args.inviteToken)
+      : null;
 
-    const existingMembership = await ctx.db
-      .query("familyMembers")
-      .withIndex("by_betterAuthUserId", (q) =>
-        q.eq("betterAuthUserId", authUser._id),
-      )
-      .first();
-
-    if (existingMembership) {
-      const familyId =
-        userProfile.currentFamilyId ?? existingMembership.familyId;
-      await ctx.db.patch(userProfile._id, {
-        currentFamilyId: familyId,
-      });
-      await ensureMemberProfile(ctx, familyId, authUser);
-      return { familyId };
+    if (args.inviteToken && !invite) {
+      throw new ConvexError("Invite not found");
     }
 
-    const migrated = await migrateLegacyWorkspace(ctx, authUser, userProfile);
-    if (migrated) {
+    let decision;
+    try {
+      decision = decideFamilyBootstrap({
+        authUserId: authUser._id,
+        now: nowEpochMs(),
+        existingMembershipFamilyId: existingMembership?.familyId ?? null,
+        invite: invite
+          ? {
+              familyId: invite.familyId,
+              status: invite.status,
+              expiresAt: invite.expiresAt,
+              acceptedByUserId: invite.acceptedByUserId,
+            }
+          : null,
+      });
+    } catch (error) {
+      throw new ConvexError(error instanceof Error ? error.message : String(error));
+    }
+
+    if (decision.kind === "use-existing-membership") {
+      const familyId = decision.familyId as Id<"families">;
+      await ensureMemberProfile(ctx, familyId, authUser);
       return {
-        familyId: migrated.familyId,
+        familyId,
       };
     }
 
-    const familyId = await createFreshFamilyWorkspace(
-      ctx,
-      authUser,
-      userProfile,
-    );
-    return { familyId };
+    if (decision.kind === "accept-invite") {
+      if (!invite) {
+        throw new ConvexError("Invite not found");
+      }
+
+      const familyId = await acceptInviteForUser({
+        ctx,
+        authUser,
+        invite,
+        existingMembership,
+      });
+      return { familyId };
+    }
+
+    return {
+      familyId: await createFreshFamilyWorkspace(ctx, authUser, userProfile),
+    };
   },
 });
 
@@ -493,11 +390,7 @@ export const getInvitePreview = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const invite = await ctx.db
-      .query("familyInvites")
-      .withIndex("by_token", (q) => q.eq("token", args.token))
-      .first();
-
+    const invite = await getInviteByToken(ctx, args.token);
     if (!invite) {
       return null;
     }
@@ -581,17 +474,18 @@ export const getFamilyHub = query({
       .query("memberProfiles")
       .withIndex("by_familyId", (q) => q.eq("familyId", viewer.family._id))
       .collect();
-    const userProfiles = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_currentFamilyId", (q) =>
-        q.eq("currentFamilyId", viewer.family._id),
-      )
-      .collect();
+    const userProfiles = await Promise.all(
+      members.map((member) =>
+        getUserProfileByAuthUserId(ctx, member.betterAuthUserId),
+      ),
+    );
     const memberProfileByUserId = new Map(
       memberProfiles.map((profile) => [profile.betterAuthUserId, profile]),
     );
     const userProfileByUserId = new Map(
-      userProfiles.map((profile) => [profile.betterAuthUserId, profile]),
+      userProfiles
+        .filter((profile): profile is Doc<"userProfiles"> => profile !== null)
+        .map((profile) => [profile.betterAuthUserId, profile]),
     );
     const invites = await ctx.db
       .query("familyInvites")
@@ -708,64 +602,6 @@ export const revokeInvite = mutation({
   },
 });
 
-export const acceptInvite = mutation({
-  args: {
-    token: v.string(),
-  },
-  returns: v.object({
-    familyId: v.id("families"),
-  }),
-  handler: async (ctx, args) => {
-    const authUser = await authComponent.getAuthUser(ctx as any);
-    const userProfile = await getOrCreateUserProfile(ctx, authUser);
-    const invite = await ctx.db
-      .query("familyInvites")
-      .withIndex("by_token", (q) => q.eq("token", args.token))
-      .first();
-
-    if (!invite) {
-      throw new ConvexError("Invite not found");
-    }
-    if (invite.status !== "pending" || invite.expiresAt < nowEpochMs()) {
-      throw new ConvexError("Invite has expired");
-    }
-
-    const existingMembership = await ctx.db
-      .query("familyMembers")
-      .withIndex("by_betterAuthUserId", (q) =>
-        q.eq("betterAuthUserId", authUser._id),
-      )
-      .first();
-
-    if (existingMembership && existingMembership.familyId !== invite.familyId) {
-      throw new ConvexError("This account already belongs to another family");
-    }
-
-    if (!existingMembership) {
-      await ctx.db.insert("familyMembers", {
-        familyId: invite.familyId,
-        betterAuthUserId: authUser._id,
-        role: "member",
-        joinedAt: nowEpochMs(),
-      });
-    }
-
-    await ctx.db.patch(invite._id, {
-      status: "accepted",
-      acceptedAt: nowEpochMs(),
-      acceptedByUserId: authUser._id,
-    });
-    await ctx.db.patch(userProfile._id, {
-      currentFamilyId: invite.familyId,
-    });
-    await ensureMemberProfile(ctx, invite.familyId, authUser);
-
-    return {
-      familyId: invite.familyId,
-    };
-  },
-});
-
 export const updateFamilyName = mutation({
   args: {
     name: v.string(),
@@ -810,12 +646,6 @@ export const removeMember = mutation({
       throw new ConvexError("Member not found");
     }
 
-    const userProfile = await ctx.db
-      .query("userProfiles")
-      .withIndex("by_betterAuthUserId", (q) =>
-        q.eq("betterAuthUserId", args.betterAuthUserId),
-      )
-      .first();
     const memberProfile = await ctx.db
       .query("memberProfiles")
       .withIndex("by_familyId_and_betterAuthUserId", (q) =>
@@ -828,11 +658,6 @@ export const removeMember = mutation({
     await ctx.db.delete(membership._id);
     if (memberProfile) {
       await ctx.db.delete(memberProfile._id);
-    }
-    if (userProfile?.currentFamilyId === viewer.family._id) {
-      await ctx.db.patch(userProfile._id, {
-        currentFamilyId: undefined,
-      });
     }
     return null;
   },

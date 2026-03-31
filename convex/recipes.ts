@@ -30,7 +30,7 @@ type MealTag = (typeof mealTagValues)[number];
 type MassVolumeIngredientDocument = {
   _id: Id<"recipeIngredients">;
   _creationTime: number;
-  familyId?: Id<"families">;
+  familyId: Id<"families">;
   recipeId: Id<"recipes">;
   partId: Id<"recipeParts">;
   sourcePartId?: Id<"recipeParts">;
@@ -48,7 +48,7 @@ type MassVolumeIngredientDocument = {
 type PerUnitIngredientDocument = {
   _id: Id<"recipeIngredients">;
   _creationTime: number;
-  familyId?: Id<"families">;
+  familyId: Id<"families">;
   recipeId: Id<"recipes">;
   partId: Id<"recipeParts">;
   sourcePartId?: Id<"recipeParts">;
@@ -106,7 +106,7 @@ type IngredientMacroUpdate =
 type RecipePartDocument = {
   _id: Id<"recipeParts">;
   _creationTime: number;
-  familyId?: Id<"families">;
+  familyId: Id<"families">;
   recipeId: Id<"recipes">;
   name: string;
   position: number;
@@ -129,7 +129,7 @@ type RecipePartInput = {
 type RecipeDocument = {
   _id: Id<"recipes">;
   _creationTime: number;
-  familyId?: Id<"families">;
+  familyId: Id<"families">;
   name: string;
   description: string;
   servings: number;
@@ -190,7 +190,7 @@ type RecipeVersionSnapshot = {
 type RecipeVersionDocument = {
   _id: Id<"recipeVersions">;
   _creationTime: number;
-  familyId?: Id<"families">;
+  familyId: Id<"families">;
   recipeId: Id<"recipes">;
   versionNumber: number;
   prompt?: string;
@@ -243,7 +243,7 @@ const ingredientInputValidator = v.union(
 const recipePartValidator = v.object({
   _id: v.id("recipeParts"),
   _creationTime: v.number(),
-  familyId: v.optional(v.id("families")),
+  familyId: v.id("families"),
   recipeId: v.id("recipes"),
   name: v.string(),
   position: v.number(),
@@ -276,7 +276,7 @@ const ingredientDocumentValidator = v.union(
   v.object({
     _id: v.id("recipeIngredients"),
     _creationTime: v.number(),
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     recipeId: v.id("recipes"),
     partId: v.id("recipeParts"),
     sourcePartId: v.optional(v.id("recipeParts")),
@@ -290,7 +290,7 @@ const ingredientDocumentValidator = v.union(
   v.object({
     _id: v.id("recipeIngredients"),
     _creationTime: v.number(),
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     recipeId: v.id("recipes"),
     partId: v.id("recipeParts"),
     sourcePartId: v.optional(v.id("recipeParts")),
@@ -513,6 +513,7 @@ function normalizeIngredientDocument(
     return {
       _id: ingredient._id,
       _creationTime: ingredient._creationTime,
+      familyId: ingredient.familyId,
       recipeId: ingredient.recipeId,
       partId: ingredient.partId,
       sourcePartId: ingredient.sourcePartId,
@@ -532,6 +533,7 @@ function normalizeIngredientDocument(
   return {
     _id: ingredient._id,
     _creationTime: ingredient._creationTime,
+    familyId: ingredient.familyId,
     recipeId: ingredient.recipeId,
     partId: ingredient.partId,
     sourcePartId: ingredient.sourcePartId,
@@ -969,7 +971,7 @@ async function restoreRecipeFromSnapshot(
 async function upsertRecipeVersion(
   ctx: any,
   args: {
-    familyId?: Id<"families">;
+    familyId: Id<"families">;
     recipeId: Id<"recipes">;
     versionNumber: number;
     prompt?: string;

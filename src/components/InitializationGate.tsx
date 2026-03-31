@@ -1,7 +1,7 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { useConvexAuth, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { authClient } from "../lib/auth";
+import { authClient, buildAuthPath, parseAuthSearch } from "../lib/auth";
 import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
 
@@ -24,33 +24,36 @@ export function InitializationGate({ children }: { children: ReactNode }) {
     isLoading: isConvexAuthLoading,
     isAuthenticated: isConvexAuthenticated,
   } = useConvexAuth();
-  const initializeCurrentUser = useMutation(api.families.initializeCurrentUser);
+  const bootstrapCurrentUser = useMutation(api.families.bootstrapCurrentUser);
   const [initializationError, setInitializationError] = useState<string | null>(
     null,
   );
-  const initializedSessionIdRef = useRef<string | null>(null);
+  const [bootstrappedKey, setBootstrappedKey] = useState<string | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
 
   const currentPath = window.location.pathname;
   const currentSearch = window.location.search;
   const isAuthRoute = currentPath === "/auth";
-  const inviteToken = useMemo(
-    () => new URLSearchParams(currentSearch).get("invite"),
+  const { inviteToken, redirectTarget } = useMemo(
+    () => parseAuthSearch(currentSearch),
     [currentSearch],
   );
+  const sessionId = session.data?.session?.id ?? null;
+  const bootstrapKey = sessionId ? `${sessionId}:${inviteToken ?? ""}` : null;
 
   useEffect(() => {
     if (session.isPending) {
       return;
     }
 
-    if (!session.data?.session) {
-      initializedSessionIdRef.current = null;
+    if (!sessionId) {
+      setBootstrappedKey(null);
       setInitializationError(null);
+      setIsBootstrapping(false);
 
       if (!isAuthRoute) {
-        const redirectTarget = `${currentPath}${currentSearch}`;
-        const nextUrl = `/auth?redirect=${encodeURIComponent(redirectTarget)}`;
-        window.location.replace(nextUrl);
+        const redirectTo = `${currentPath}${currentSearch}`;
+        window.location.replace(buildAuthPath({ redirectTo }));
       }
       return;
     }
@@ -66,45 +69,74 @@ export function InitializationGate({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (isAuthRoute && inviteToken) {
+    if (bootstrapKey === bootstrappedKey) {
+      if (isAuthRoute) {
+        window.location.replace(redirectTarget);
+      }
       return;
     }
 
-    if (initializedSessionIdRef.current === session.data.session.id) {
-      return;
-    }
-
+    let cancelled = false;
     setInitializationError(null);
-    void initializeCurrentUser({})
+    setIsBootstrapping(true);
+
+    void bootstrapCurrentUser(
+      inviteToken ? { inviteToken } : {},
+    )
       .then(() => {
-        initializedSessionIdRef.current = session.data!.session.id;
+        if (cancelled) {
+          return;
+        }
+
+        setBootstrappedKey(bootstrapKey);
+        if (isAuthRoute) {
+          window.location.replace(redirectTarget);
+        }
       })
       .catch((error) => {
-        setInitializationError(
-          error instanceof Error ? error.message : String(error),
-        );
+        if (!cancelled) {
+          setInitializationError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsBootstrapping(false);
+        }
       });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
+    bootstrappedKey,
+    bootstrapCurrentUser,
+    bootstrapKey,
     currentPath,
     currentSearch,
-    initializeCurrentUser,
-    isConvexAuthenticated,
-    isConvexAuthLoading,
     inviteToken,
     isAuthRoute,
-    session.data?.session,
+    isConvexAuthenticated,
+    isConvexAuthLoading,
+    redirectTarget,
     session.isPending,
+    sessionId,
   ]);
 
-  if (session.isPending || (session.data?.session && isConvexAuthLoading)) {
+  if (session.isPending || (sessionId && isConvexAuthLoading)) {
     return <FullScreenSpinner message="Loading your account session..." />;
   }
 
-  if (!session.data?.session) {
+  if (!sessionId) {
     return isAuthRoute ? <>{children}</> : null;
   }
 
   if (initializationError) {
+    const retryPath = isAuthRoute
+      ? buildAuthPath({ inviteToken, redirectTo: redirectTarget })
+      : buildAuthPath({ redirectTo: `${currentPath}${currentSearch}` });
+
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
         <Card className="w-full max-w-md border-destructive/20">
@@ -122,7 +154,9 @@ export function InitializationGate({ children }: { children: ReactNode }) {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => void authClient.signOut().then(() => window.location.replace("/auth"))}
+                onClick={() =>
+                  void authClient.signOut().then(() => window.location.replace(retryPath))
+                }
               >
                 Sign out
               </Button>
@@ -133,14 +167,12 @@ export function InitializationGate({ children }: { children: ReactNode }) {
     );
   }
 
-  if (
-    !(
-      isAuthRoute && inviteToken
-    ) &&
-    (initializedSessionIdRef.current !== session.data.session.id ||
-      !isConvexAuthenticated)
-  ) {
+  if (isBootstrapping || bootstrappedKey !== bootstrapKey) {
     return <FullScreenSpinner message="Loading your family workspace..." />;
+  }
+
+  if (isAuthRoute) {
+    return <FullScreenSpinner message="Opening your family workspace..." />;
   }
 
   return <>{children}</>;

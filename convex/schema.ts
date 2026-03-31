@@ -82,11 +82,8 @@ const applicationTables = {
     email: v.optional(v.string()),
     name: v.optional(v.string()),
     image: v.optional(v.string()),
-    currentFamilyId: v.optional(v.id("families")),
     createdAt: v.number(),
-  })
-    .index("by_betterAuthUserId", ["betterAuthUserId"])
-    .index("by_currentFamilyId", ["currentFamilyId"]),
+  }).index("by_betterAuthUserId", ["betterAuthUserId"]),
 
   families: defineTable({
     name: v.string(),
@@ -174,7 +171,7 @@ const applicationTables = {
   ]),
 
   groceryItems: defineTable({
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     name: v.string(),
     category: v.string(),
     storeId: v.optional(v.id("stores")),
@@ -195,7 +192,7 @@ const applicationTables = {
     ]),
 
   categories: defineTable({
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     name: v.string(),
     storeId: v.optional(v.id("stores")),
     order: v.number(),
@@ -209,7 +206,7 @@ const applicationTables = {
     .index("by_family_store_and_order", ["familyId", "storeId", "order"]),
 
   stores: defineTable({
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     name: v.string(),
     isDefault: v.boolean(),
     createdAt: v.number(),
@@ -218,38 +215,8 @@ const applicationTables = {
     .index("by_familyId", ["familyId"])
     .index("by_familyId_and_isDefault", ["familyId", "isDefault"]),
 
-  appSettings: defineTable({
-    password: v.optional(v.string()),
-    currentStoreId: v.optional(v.id("stores")),
-    selectedModel: v.optional(v.string()),
-    profileAge: v.optional(v.number()),
-    profileSex: v.optional(v.union(v.literal("male"), v.literal("female"))),
-    profileHeightCm: v.optional(v.number()),
-    profileWeightKg: v.optional(v.number()),
-    profileBodyFatPct: v.optional(v.number()),
-    profileActivityLevel: v.optional(
-      v.union(
-        v.literal("sedentary"),
-        v.literal("light"),
-        v.literal("moderate"),
-        v.literal("active"),
-        v.literal("veryActive")
-      )
-    ),
-    profileGoalDirection: v.optional(
-      v.union(v.literal("lose"), v.literal("maintain"), v.literal("gain"))
-    ),
-    macroTolerancePct: v.optional(v.number()),
-    targetKcal: v.optional(v.number()),
-    targetProtein: v.optional(v.number()),
-    targetCarbs: v.optional(v.number()),
-    targetFat: v.optional(v.number()),
-    migratedFamilyId: v.optional(v.id("families")),
-    migratedAt: v.optional(v.number()),
-  }),
-
   recipes: defineTable({
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     name: v.string(),
     description: v.string(),
     servings: v.number(),
@@ -266,7 +233,7 @@ const applicationTables = {
     .searchIndex("search_name", { searchField: "name" }),
 
   recipeVersions: defineTable({
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     recipeId: v.id("recipes"),
     versionNumber: v.number(),
     prompt: v.optional(v.string()),
@@ -278,7 +245,7 @@ const applicationTables = {
     .index("by_recipeId_and_versionNumber", ["recipeId", "versionNumber"]),
 
   recipeParts: defineTable({
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     recipeId: v.id("recipes"),
     name: v.string(),
     position: v.number(),
@@ -294,7 +261,7 @@ const applicationTables = {
   recipeIngredients: defineTable(
     v.union(
       v.object({
-        familyId: v.optional(v.id("families")),
+        familyId: v.id("families"),
         recipeId: v.id("recipes"),
         partId: v.id("recipeParts"),
         sourcePartId: v.optional(v.id("recipeParts")),
@@ -309,7 +276,7 @@ const applicationTables = {
         fatPer100: v.number(),
       }),
       v.object({
-        familyId: v.optional(v.id("families")),
+        familyId: v.id("families"),
         recipeId: v.id("recipes"),
         partId: v.id("recipeParts"),
         sourcePartId: v.optional(v.id("recipeParts")),
@@ -331,7 +298,7 @@ const applicationTables = {
     .index("by_sourcePartId", ["sourcePartId"]),
 
   mealPlans: defineTable({
-    familyId: v.optional(v.id("families")),
+    familyId: v.id("families"),
     date: v.string(),
     mealType: v.string(),
     recipeId: v.id("recipes"),

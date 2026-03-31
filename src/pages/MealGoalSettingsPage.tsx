@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { MealGoalSettingsForm } from "../components/meal-goals/MealGoalSettingsForm";
@@ -7,12 +7,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { authClient, buildAuthReturnUrl } from "../lib/auth";
-
-type LinkedAccount = {
-  providerId: string;
-  accountId: string;
-};
+import { authClient } from "../lib/auth";
 
 export function MealGoalSettingsPage() {
   const familyHub = useQuery(api.families.getFamilyHub, {});
@@ -20,15 +15,11 @@ export function MealGoalSettingsPage() {
     api.nutritionGoals.getFamilyPlanningContext,
     {},
   );
-  const authConfiguration = useQuery(api.auth.getAuthConfiguration, {});
   const [familyName, setFamilyName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
-  const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([]);
-  const [accountLoading, setAccountLoading] = useState(false);
   const [savingFamilyName, setSavingFamilyName] = useState(false);
   const [creatingInvite, setCreatingInvite] = useState(false);
-  const [linkingGoogle, setLinkingGoogle] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -42,31 +33,6 @@ export function MealGoalSettingsPage() {
       setFamilyName(familyHub.family.name);
     }
   }, [familyHub?.family.name]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setAccountLoading(true);
-    void authClient
-      .listAccounts()
-      .then((result) => {
-        if (!cancelled) {
-          setLinkedAccounts((result.data ?? []) as LinkedAccount[]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setAccountLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const hasGoogleLinked = useMemo(
-    () => linkedAccounts.some((account) => account.providerId === "google"),
-    [linkedAccounts],
-  );
 
   const handleSaveFamilyName = async () => {
     if (!familyName.trim()) return;
@@ -110,27 +76,6 @@ export function MealGoalSettingsPage() {
   const handleCopyInvite = async (inviteUrl: string) => {
     await navigator.clipboard.writeText(inviteUrl);
     setMessage("Invite link copied.");
-  };
-
-  const handleLinkGoogle = async () => {
-    setLinkingGoogle(true);
-    setErrorMessage(null);
-    const callbackUrl = buildAuthReturnUrl({ redirectTo: "/family" });
-    try {
-      const result = await authClient.linkSocial({
-        provider: "google",
-        callbackURL: callbackUrl,
-        errorCallbackURL: callbackUrl,
-      });
-      if (result.error) {
-        throw new Error(
-          result.error.message || "Google account linking failed.",
-        );
-      }
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-      setLinkingGoogle(false);
-    }
   };
 
   const handleSignOut = async () => {
@@ -413,43 +358,12 @@ export function MealGoalSettingsPage() {
         <CardContent className="space-y-4 p-4">
           <div>
             <h2 className="text-sm font-semibold text-muted-foreground">
-              Sign-in methods
+              Account
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Google is the supported sign-in method. If this account was
-              created before that change, link Google before signing out.
+              Google is the only supported sign-in method for this workspace.
             </p>
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            {accountLoading ? (
-              <Badge variant="outline">Loading accounts...</Badge>
-            ) : linkedAccounts.length > 0 ? (
-              linkedAccounts.map((account) => (
-                <Badge
-                  key={`${account.providerId}-${account.accountId}`}
-                  variant="secondary"
-                >
-                  {account.providerId}
-                </Badge>
-              ))
-            ) : (
-              <Badge variant="outline">No linked providers listed yet</Badge>
-            )}
-          </div>
-
-          {authConfiguration?.googleEnabled && !hasGoogleLinked && (
-            <Button
-              type="button"
-              onClick={() => void handleLinkGoogle()}
-              disabled={linkingGoogle}
-              className="w-full"
-            >
-              {linkingGoogle
-                ? "Redirecting to Google..."
-                : "Link Google account"}
-            </Button>
-          )}
 
           <Button
             type="button"

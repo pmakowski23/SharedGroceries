@@ -39,7 +39,7 @@ export function PreferencesSection({
       <CardContent className="space-y-4 p-4">
         <div>
           <h2 className="text-sm font-semibold text-muted-foreground">
-            Family preferences
+            Diet preferences
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             These settings are personal, but meal planning combines them across
@@ -110,7 +110,9 @@ export function PreferencesSection({
           disabled={form.savingPreferences}
           className="w-full"
         >
-          {form.savingPreferences ? "Saving preferences..." : "Save preferences"}
+          {form.savingPreferences
+            ? "Saving preferences..."
+            : "Save preferences"}
         </Button>
       </CardContent>
     </Card>

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useState, type ReactNode } from "react";
+import { useQuery } from "convex/react";
 import {
   ArrowRight,
   CalendarDays,
@@ -15,13 +15,8 @@ import { api } from "../../convex/_generated/api";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
+import { authClient, buildAuthReturnUrl, getCurrentAuthSearch } from "../lib/auth";
 import { cn } from "../lib/utils";
-import {
-  authClient,
-  buildAuthReturnUrl,
-  getCurrentInviteToken,
-  getCurrentRedirectTarget,
-} from "../lib/auth";
 
 const workspaceHighlights: Array<{
   icon: LucideIcon;
@@ -118,117 +113,20 @@ function HighlightCard({
   );
 }
 
-function LoadingPanel({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <AuthBackdrop>
-      <div className="mx-auto flex min-h-screen max-w-5xl items-center px-4 py-10 sm:px-6">
-        <Card className="mx-auto w-full max-w-xl overflow-hidden rounded-[34px] border-white/70 bg-white/72 shadow-[0_36px_100px_rgba(76,58,34,0.16)] backdrop-blur-xl">
-          <CardContent className="p-6 sm:p-8">
-            <div className="flex flex-col items-center text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-[24px] border border-primary/15 bg-primary/10 text-primary shadow-[0_12px_40px_rgba(87,113,83,0.16)]">
-                <LoaderCircle className="h-7 w-7 animate-spin" />
-              </div>
-              <Badge
-                variant="secondary"
-                className="mt-6 border border-white/70 bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-primary/80"
-              >
-                Shared Groceries
-              </Badge>
-              <h1 className='mt-5 max-w-md font-["Iowan_Old_Style","Palatino_Linotype","Book_Antiqua",Palatino,serif] text-4xl leading-none tracking-[-0.04em] text-foreground sm:text-5xl'>
-                {title}
-              </h1>
-              <p className="mt-4 max-w-md text-sm leading-7 text-muted-foreground sm:text-base">
-                {description}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </AuthBackdrop>
-  );
-}
-
 export function AuthPage() {
-  const inviteToken = useMemo(() => getCurrentInviteToken(), []);
-  const redirectTarget = useMemo(() => getCurrentRedirectTarget(), []);
+  const { inviteToken, redirectTarget } = getCurrentAuthSearch();
   const authConfiguration = useQuery(api.auth.getAuthConfiguration, {});
   const invitePreview = useQuery(
     api.families.getInvitePreview,
     inviteToken ? { token: inviteToken } : "skip",
   );
-  const session = authClient.useSession();
-  const {
-    isLoading: isConvexAuthLoading,
-    isAuthenticated: isConvexAuthenticated,
-  } = useConvexAuth();
-  const acceptInvite = useMutation(api.families.acceptInvite);
-
   const [startingGoogle, setStartingGoogle] = useState(false);
-  const [claimingInvite, setClaimingInvite] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [inviteHandledForSession, setInviteHandledForSession] = useState<
-    string | null
-  >(null);
 
   const callbackUrl = buildAuthReturnUrl({
     inviteToken,
     redirectTo: redirectTarget,
   });
-
-  useEffect(() => {
-    if (!session.data?.session) {
-      setInviteHandledForSession(null);
-      return;
-    }
-
-    if (!inviteToken) {
-      window.location.replace(redirectTarget);
-      return;
-    }
-
-    if (isConvexAuthLoading) {
-      return;
-    }
-
-    if (!isConvexAuthenticated) {
-      setErrorMessage(
-        "Your sign-in session could not be synced with the workspace. Reload and try again.",
-      );
-      return;
-    }
-
-    if (inviteHandledForSession === session.data.session.id) {
-      return;
-    }
-
-    setClaimingInvite(true);
-    setErrorMessage(null);
-    void acceptInvite({ token: inviteToken })
-      .then(() => {
-        setInviteHandledForSession(session.data!.session.id);
-        window.location.replace(redirectTarget);
-      })
-      .catch((error) => {
-        setErrorMessage(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        setClaimingInvite(false);
-      });
-  }, [
-    acceptInvite,
-    isConvexAuthenticated,
-    isConvexAuthLoading,
-    inviteHandledForSession,
-    inviteToken,
-    redirectTarget,
-    session.data?.session,
-  ]);
 
   const handleGoogleSignIn = async () => {
     setStartingGoogle(true);
@@ -248,28 +146,6 @@ export function AuthPage() {
       setStartingGoogle(false);
     }
   };
-
-  const handleSignOut = async () => {
-    await authClient.signOut();
-    window.location.replace(callbackUrl);
-  };
-
-  if (
-    session.isPending ||
-    claimingInvite ||
-    (session.data?.session && inviteToken && isConvexAuthLoading)
-  ) {
-    return (
-      <LoadingPanel
-        title="Preparing your family workspace"
-        description={
-          inviteToken
-            ? "We’re validating the invite and opening the shared hub on the selected Google account."
-            : "We’re restoring your session and loading the family workspace."
-        }
-      />
-    );
-  }
 
   const isInviteExpired = Boolean(invitePreview?.isExpired);
   const inviteStateLabel = inviteToken
@@ -442,16 +318,6 @@ export function AuthPage() {
                     <p className="text-sm leading-6 text-destructive">
                       {errorMessage}
                     </p>
-                    {session.data?.session && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => void handleSignOut()}
-                        className="mt-3 rounded-[16px]"
-                      >
-                        Use a different account
-                      </Button>
-                    )}
                   </div>
                 )}
 

@@ -733,7 +733,7 @@ export const categorizeItem = action({
         error?: string;
       }
   > => {
-    await ctx.runMutation(api.families.initializeCurrentUser, {});
+    await ctx.runMutation(api.families.bootstrapCurrentUser, {});
     const viewer: {
       currentStoreId: Id<"stores"> | null;
     } = await ctx.runQuery(api.families.getViewerRuntimeContext, {});

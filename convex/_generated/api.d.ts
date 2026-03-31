@@ -14,6 +14,7 @@ import type * as env from "../env.js";
 import type * as families from "../families.js";
 import type * as groceries from "../groceries.js";
 import type * as http from "../http.js";
+import type * as lib_familyBootstrap from "../lib/familyBootstrap.js";
 import type * as lib_familyPlanning from "../lib/familyPlanning.js";
 import type * as lib_groceryTaxonomy from "../lib/groceryTaxonomy.js";
 import type * as lib_ingredientNutrition from "../lib/ingredientNutrition.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   families: typeof families;
   groceries: typeof groceries;
   http: typeof http;
+  "lib/familyBootstrap": typeof lib_familyBootstrap;
   "lib/familyPlanning": typeof lib_familyPlanning;
   "lib/groceryTaxonomy": typeof lib_groceryTaxonomy;
   "lib/ingredientNutrition": typeof lib_ingredientNutrition;

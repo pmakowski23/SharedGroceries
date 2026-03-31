@@ -23,13 +23,6 @@ export const createAuth = (
     baseURL: convexSiteUrl,
     trustedOrigins: authTrustedOrigins,
     database: authComponent.adapter(ctx),
-    account: {
-      accountLinking: {
-        enabled: true,
-        trustedProviders: ["google"],
-        allowDifferentEmails: true,
-      },
-    },
     socialProviders:
       googleClientId && googleClientSecret
         ? {
